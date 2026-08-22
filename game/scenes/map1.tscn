@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://c4tocub30g0w"]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_efgh"]
+[ext_resource type="PackedScene" path="res://scenes/zombie.tscn" id="3_zmbie"]
+
+[node name="map1" type="Node2D" unique_id=4869005]
+
+[node name="player" parent="." unique_id=1275989960 instance=ExtResource("2_efgh")]
+position = Vector2(-911, 397)
+metadata/_edit_group_ = true
+
+[node name="Camera2D" type="Camera2D" parent="player" unique_id=2044597011]
+
+[node name="Zombie" parent="." instance=ExtResource("3_zmbie")]
+position = Vector2(-700, 397)

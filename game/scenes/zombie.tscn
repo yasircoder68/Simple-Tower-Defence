@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://bmorbfeljl0f2"]
+
+[ext_resource type="Script" uid="uid://bdou6wojgmw17" path="res://scripts/zombie.gd" id="1_zmbie"]
+[ext_resource type="Texture2D" uid="uid://c5b6alif1chmk" path="res://asserts/1_pixel.png" id="2_efgh"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
+size = Vector2(64, 64)
+
+[node name="Zombie" type="CharacterBody2D" unique_id=533941078]
+scale = Vector2(0.5, 0.5)
+motion_mode = 1
+script = ExtResource("1_zmbie")
+metadata/_edit_group_ = true
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1540082605]
+modulate = Color(1, 0, 0, 1)
+scale = Vector2(64, 64)
+texture = ExtResource("2_efgh")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1553809023]
+shape = SubResource("RectangleShape2D_1")
+
+[node name="NavigationAgent2D" type="NavigationAgent2D" parent="." unique_id=492836339]
