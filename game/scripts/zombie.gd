@@ -1,7 +1,7 @@
 extends Area2D
 
 @export var speed: float = 200.0
-var hp: int = 100
+var hp: int = 10
 
 @onready var map = get_parent()
 

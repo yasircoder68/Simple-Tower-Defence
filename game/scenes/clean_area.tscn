@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://gp4iduq5hfkw"]
+
+[ext_resource type="Script" path="res://scripts/clean_area.gd" id="1_6fqc5"]
+
+[node name="CleanArea" type="Node2D" unique_id=252212761]
+script = ExtResource("1_6fqc5")

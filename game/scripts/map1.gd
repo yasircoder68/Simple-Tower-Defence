@@ -15,6 +15,12 @@ func _ready() -> void:
 	f.store_string("Count: " + str(zombie_count))
 	f.close()
 	generate_flow_field()
+	
+	var archer_scene = preload("res://scenes/archer.tscn")
+	var archer = archer_scene.instantiate()
+	archer.global_position = Vector2(400, 300) # Arbitrary tower position
+	add_child(archer)
+	
 	spawn_zombies()
 
 func generate_flow_field() -> void:
