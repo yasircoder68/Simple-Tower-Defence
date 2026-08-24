@@ -19,6 +19,5 @@ sources/4 = SubResource("TileSetAtlasSource_tjuek")
 sources/5 = SubResource("TileSetAtlasSource_47enk")
 
 [node name="TileMap" type="TileMap" unique_id=892425035]
-scale = Vector2(5, 5)
 tile_set = SubResource("TileSet_kvphj")
 format = 2

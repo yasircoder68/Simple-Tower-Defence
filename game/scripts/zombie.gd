@@ -1,51 +1,60 @@
-extends CharacterBody2D
+extends Area2D
 
 @export var speed: float = 200.0
-@export var acceleration: float = 1000.0
+var hp: int = 100
 
-var player: Node2D = null
-@onready var nav_agent: NavigationAgent2D = $NavigationAgent2D
-
-func _ready() -> void:
-	player = get_tree().get_first_node_in_group("player")
-	
-	# Enable dynamic avoidance so zombies don't clump up
-	nav_agent.avoidance_enabled = true
-	nav_agent.radius = 32.0 # Roughly matches the collision shape radius
-	nav_agent.velocity_computed.connect(_on_velocity_computed)
+@onready var map = get_parent()
 
 func _physics_process(delta: float) -> void:
-	if not player:
-		player = get_tree().get_first_node_in_group("player")
+	if not map.has_method("get_flow_direction"):
+		return
 		
-	var desired_velocity = velocity
+	var flow_dir = map.get_flow_direction(global_position)
+	
+	# If flow_dir is zero, it means we reached the target cell.
+	# Walk exactly to the final pixel coordinate!
+	if flow_dir == Vector2.ZERO:
+		flow_dir = global_position.direction_to(map.end_point.global_position)
+		if global_position.distance_to(map.end_point.global_position) < 30.0:
+			queue_free()
+			return
 		
-	if player:
-		nav_agent.target_position = player.global_position
+	# Soft separation to act like fluid
+	var separation = Vector2.ZERO
+	var neighbor_count = 0
+	for other in get_overlapping_areas():
+		if other != self and other.is_in_group("zombie"):
+			var dist = global_position.distance_to(other.global_position)
+			if dist < 32.0 and dist > 0:
+				# Push away softly
+				separation += other.global_position.direction_to(global_position) * (1.0 - (dist / 32.0))
+				neighbor_count += 1
+				if neighbor_count >= 5: # Limit checks to save FPS in massive swarms!
+					break
+				
+	var desired_dir = (flow_dir + separation * 1.5).normalized()
+	if desired_dir == Vector2.ZERO:
+		desired_dir = flow_dir
 		
-		var direction = Vector2.ZERO
-		if nav_agent.is_target_reachable() and not nav_agent.is_navigation_finished():
-			var next_path_position = nav_agent.get_next_path_position()
-			direction = global_position.direction_to(next_path_position)
+	# Move manually
+	var step = desired_dir * speed * delta
+	var next_pos = global_position + step
+	
+	# Prevent walking into walls by checking the map
+	if not map.is_wall(next_pos):
+		global_position = next_pos
+	else:
+		# Try sliding along X axis
+		var next_pos_x = global_position + Vector2(step.x, 0)
+		if not map.is_wall(next_pos_x):
+			global_position = next_pos_x
 		else:
-			# Fallback: if no navmesh is found or target is unreachable, move directly
-			direction = global_position.direction_to(player.global_position)
-			
-		desired_velocity = velocity.move_toward(direction * speed, acceleration * delta)
-	else:
-		desired_velocity = velocity.move_toward(Vector2.ZERO, acceleration * delta)
-		
-	# Prevent physics glitches from permanently increasing speed
-	if desired_velocity.length() > speed:
-		desired_velocity = desired_velocity.limit_length(speed)
-		
-	# Send the desired velocity to the NavigationAgent for avoidance calculation
-	if nav_agent.avoidance_enabled:
-		nav_agent.set_velocity(desired_velocity)
-	else:
-		velocity = desired_velocity
-		move_and_slide()
+			# Try sliding along Y axis
+			var next_pos_y = global_position + Vector2(0, step.y)
+			if not map.is_wall(next_pos_y):
+				global_position = next_pos_y
 
-func _on_velocity_computed(safe_velocity: Vector2) -> void:
-	velocity = safe_velocity
-	move_and_slide()
+func take_damage(amount: int) -> void:
+	hp -= amount
+	if hp <= 0:
+		queue_free()
