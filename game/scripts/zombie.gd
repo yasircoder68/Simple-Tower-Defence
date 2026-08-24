@@ -55,6 +55,15 @@ func _physics_process(delta: float) -> void:
 				global_position = next_pos_y
 
 func take_damage(amount: int) -> void:
+	if hp <= 0: return
 	hp -= amount
 	if hp <= 0:
 		queue_free()
+
+func log_death(reason: String):
+	var f = FileAccess.open("user://zombie_death.txt", FileAccess.READ_WRITE)
+	if not f:
+		f = FileAccess.open("user://zombie_death.txt", FileAccess.WRITE)
+	f.seek_end()
+	f.store_string("Died at " + str(global_position) + " reason: " + reason + "\n")
+	f.close()

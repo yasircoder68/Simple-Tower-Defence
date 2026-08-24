@@ -4,7 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://bl78og8a5cvwj" path="res://asserts/archer.png" id="2_orquw"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_cctdm"]
-radius = 150.0
+radius = 50.0
 
 [node name="Archer" type="Area2D" unique_id=1607208364]
 position = Vector2(329, 98)
@@ -16,7 +16,7 @@ scale = Vector2(3, 3)
 texture = ExtResource("2_orquw")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1276783003]
-scale = Vector2(3, 3)
+scale = Vector2(4, 4)
 shape = SubResource("CircleShape2D_cctdm")
 
 [node name="Timer" type="Timer" parent="." unique_id=341675892]

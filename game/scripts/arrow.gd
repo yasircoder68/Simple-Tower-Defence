@@ -29,8 +29,13 @@ func _physics_process(delta):
 	
 	global_position += direction * speed * delta
 
+var hit: bool = false
+
 func _on_area_entered(area):
+	if hit:
+		return
 	if area.is_in_group("zombie"):
 		if area.has_method("take_damage"):
+			hit = true
 			area.take_damage(damage)
 			queue_free()

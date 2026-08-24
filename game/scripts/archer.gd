@@ -9,6 +9,7 @@ func _on_timer_timeout():
 			var arrow_scene = preload("res://scenes/arrow.tscn")
 			var arrow = arrow_scene.instantiate()
 			arrow.target = target
-			arrow.global_position = global_position
+			arrow.damage = damage
 			get_parent().add_child(arrow)
+			arrow.global_position = global_position
 			break # Shoot one zombie per timeout

@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://bminrqer5a70b"]
+
+[ext_resource type="Script" path="res://scripts/archer_tower.gd" id="1_sb3hj"]
+[ext_resource type="Texture2D" uid="uid://kp2232x8rbpb" path="res://asserts/archer_tower.png" id="2_o73lx"]
+
+[node name="ArcherTower" type="Node2D" unique_id=2037144553]
+script = ExtResource("1_sb3hj")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=719594150]
+scale = Vector2(3, 3)
+texture = ExtResource("2_o73lx")

@@ -1,6 +1,16 @@
 [gd_scene format=3 uid="uid://gp4iduq5hfkw"]
 
 [ext_resource type="Script" path="res://scripts/clean_area.gd" id="1_6fqc5"]
+[ext_resource type="PackedScene" uid="uid://dstruxyl35vdf" path="res://scenes/archer.tscn" id="2_783h0"]
+[ext_resource type="Texture2D" uid="uid://kp2232x8rbpb" path="res://asserts/archer_tower.png" id="3_nmjfn"]
 
 [node name="CleanArea" type="Node2D" unique_id=252212761]
 script = ExtResource("1_6fqc5")
+
+[node name="Archer" parent="." unique_id=1607208364 instance=ExtResource("2_783h0")]
+position = Vector2(313, 123)
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=2084304437]
+position = Vector2(323, 202)
+scale = Vector2(6.84375, 4.34375)
+texture = ExtResource("3_nmjfn")
