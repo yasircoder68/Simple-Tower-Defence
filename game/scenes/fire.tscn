@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://df70c4b2p48n6"]
+
+[ext_resource type="Script" path="res://scripts/fire.gd" id="1_fire"]
+[ext_resource type="Texture2D" uid="uid://bidpt2v20ha01" path="res://asserts/fire.png" id="2_fireimg"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_fire"]
+radius = 20.0
+
+[node name="Fire" type="Area2D"]
+script = ExtResource("1_fire")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(3, 3)
+texture = ExtResource("2_fireimg")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_fire")
+
+[connection signal="area_entered" from="." to="." method="_on_area_entered"]

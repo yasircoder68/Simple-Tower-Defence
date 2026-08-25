@@ -1,0 +1,22 @@
+[gd_scene format=3 uid="uid://df70c4b2p48n7"]
+
+[ext_resource type="Script" path="res://scripts/wizard.gd" id="1_wiz"]
+[ext_resource type="Texture2D" uid="uid://s02w3ejw1u0s" path="res://asserts/wizard.png" id="2_wizimg"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_wiz"]
+radius = 100.0
+
+[node name="Wizard" type="Area2D"]
+script = ExtResource("1_wiz")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(3, 3)
+texture = ExtResource("2_wizimg")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_wiz")
+
+[node name="Timer" type="Timer" parent="."]
+autostart = true
+
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

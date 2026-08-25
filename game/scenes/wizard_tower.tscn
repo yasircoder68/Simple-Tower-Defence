@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://cx4xkx3l2s10a"]
+
+[ext_resource type="Script" uid="uid://cb45rrudgbgx5" path="res://scripts/wizard_tower.gd" id="1_wiztower"]
+[ext_resource type="Texture2D" uid="uid://woexgdao3h2" path="res://asserts/wizard_tower.png" id="2_wiztowerimg"]
+
+[node name="WizardTower" type="Node2D" unique_id=1908118483]
+script = ExtResource("1_wiztower")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1004197458]
+scale = Vector2(10, 10)
+texture = ExtResource("2_wiztowerimg")
