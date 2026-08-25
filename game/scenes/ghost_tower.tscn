@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bbhct5yc34vh5"]
+
+[ext_resource type="Script" uid="uid://c8c03yoifnvds" path="res://scripts/ghost_tower.gd" id="1_tws5u"]
+
+[node name="GhostTower" type="Node2D" unique_id=161888719]
+script = ExtResource("1_tws5u")
