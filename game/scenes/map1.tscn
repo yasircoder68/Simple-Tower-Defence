@@ -3,7 +3,21 @@
 [ext_resource type="Script" uid="uid://m2dnhgidcx04" path="res://scripts/map1.gd" id="1_map1"]
 [ext_resource type="PackedScene" uid="uid://mjbfh66n8kmp" path="res://scenes/my_tiles.tscn" id="3_v7ld6"]
 [ext_resource type="Script" uid="uid://cm7yn12a5yqky" path="res://scripts/fps_counter.gd" id="3_x0ugi"]
-[ext_resource type="TileSet" uid="uid://bj330gl27d2o6" path="res://scenes/building_platform_tileset.tres" id="4_x0ugi"]
+[ext_resource type="Texture2D" uid="uid://vn24vkm6ufph" path="res://asserts/add_building.png" id="4_x0ugi"]
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_lypb2"]
+texture = ExtResource("4_x0ugi")
+texture_region_size = Vector2i(1, 1)
+0:0/0 = 0
+0:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, 16, -16, 16, 16, -16, 16)
+8:9/size_in_atlas = Vector2i(17, 17)
+8:9/0 = 0
+8:9/0/physics_layer_0/polygon_0/points = PackedVector2Array(-8.533333, -8.533333, 8.488313, -8.515047, 8.533335, 8.533335, -8.533333, 8.533335)
+
+[sub_resource type="TileSet" id="TileSet_wpo3d"]
+tile_size = Vector2i(32, 32)
+physics_layer_0/collision_layer = 1
+sources/0 = SubResource("TileSetAtlasSource_lypb2")
 
 [node name="map1" type="Node2D" unique_id=4869005]
 script = ExtResource("1_map1")
@@ -33,5 +47,5 @@ scale = Vector2(2, 2)
 script = ExtResource("3_x0ugi")
 
 [node name="TileMap" type="TileMap" parent="." unique_id=533916970]
-tile_set = ExtResource("4_x0ugi")
+tile_set = SubResource("TileSet_wpo3d")
 format = 2
