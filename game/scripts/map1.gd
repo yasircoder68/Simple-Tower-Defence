@@ -16,14 +16,12 @@ func _ready() -> void:
 	f.close()
 	generate_flow_field()
 	
-	var tower_scene = preload("res://scenes/archer_tower.tscn")
+	var tower_scene = preload("res://scenes/wizard_tower.tscn")
 	var tower_positions = [Vector2(200, 250), Vector2(500, 350), Vector2(750, 500)]
 	
 	for pos in tower_positions:
 		var tower = tower_scene.instantiate()
 		tower.global_position = pos
-		tower.damage = 10
-		tower.rate_of_fire = 0.5
 		add_child(tower)
 	
 	spawn_zombies()
