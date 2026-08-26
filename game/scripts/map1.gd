@@ -29,7 +29,9 @@ func _ready() -> void:
 	var ghost_scene = preload("res://scenes/ghost_tower.tscn")
 	ghost = ghost_scene.instantiate()
 	add_child(ghost)
-	
+
+func _on_start_button_pressed() -> void:
+	$CanvasLayer/StartButton.hide()
 	spawn_zombies()
 
 func _on_start_drag(tower_type: String):

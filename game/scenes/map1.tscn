@@ -46,6 +46,18 @@ offset_bottom = 33.0
 scale = Vector2(2, 2)
 script = ExtResource("3_x0ugi")
 
+[node name="StartButton" type="Button" parent="CanvasLayer" unique_id=900413346]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -122.5
+offset_top = 20.0
+offset_right = 122.5
+offset_bottom = 91.0
+text = "Start Spawning"
+
 [node name="TileMap" type="TileMap" parent="." unique_id=533916970]
 tile_set = SubResource("TileSet_wpo3d")
 format = 2
+
+[connection signal="pressed" from="CanvasLayer/StartButton" to="." method="_on_start_button_pressed"]
