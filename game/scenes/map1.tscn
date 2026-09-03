@@ -21,7 +21,8 @@ sources/0 = SubResource("TileSetAtlasSource_lypb2")
 
 [node name="map1" type="Node2D" unique_id=4869005]
 script = ExtResource("1_map1")
-spawn_interval = 0.03
+zombie_count = 1000
+spawn_interval = 0.001
 
 [node name="StartPoint" type="Marker2D" parent="." unique_id=2007836564]
 position = Vector2(32, 374)
