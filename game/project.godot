@@ -56,6 +56,12 @@ texture={
 "roughness/src_normal": ""
 }
 
+[layer_names]
+
+2d_physics/layer_1="enemies"
+2d_physics/layer_2="tower_range"
+2d_physics/layer_3="projectiles"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

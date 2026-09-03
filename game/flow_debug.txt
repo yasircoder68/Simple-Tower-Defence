@@ -1,3 +1,0 @@
-Target Cell: (21, 8)
-Rect: [P: (-20, -14), S: (59, 45)]
-Flow Field Size: 154

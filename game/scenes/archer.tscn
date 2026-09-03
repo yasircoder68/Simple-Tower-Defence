@@ -8,6 +8,7 @@ radius = 50.0
 
 [node name="Archer" type="Area2D" unique_id=1607208364]
 position = Vector2(329, 98)
+collision_layer = 2
 script = ExtResource("1_b0l3x")
 metadata/_edit_group_ = true
 

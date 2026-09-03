@@ -1,3 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Debug scratch output at project root (the code writing these was removed).
+# Scoped to / so asset-pack readmes further down the tree stay tracked.
+/*.txt

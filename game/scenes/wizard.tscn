@@ -7,6 +7,7 @@
 radius = 100.0
 
 [node name="Wizard" type="Area2D" unique_id=1995149734]
+collision_layer = 2
 script = ExtResource("1_wiz")
 damage = 3
 wizard_radius = 200.0
