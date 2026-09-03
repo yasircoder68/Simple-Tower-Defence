@@ -1,19 +1,15 @@
 extends Node2D
 
-@export var damage: int = 10
-@export var rate_of_fire: float = 0.5
+## Instantiates the archer unit and offsets it to sit visually on top of the
+## tower base. The archer resolves its own stats from TowerStats in its own
+## _ready() — this script no longer pushes damage/rate_of_fire onto it.
+## (That push used to run AFTER archer.gd's own jitter setup and clobber it —
+## see CLAUDE.md known issue #2, now moot.)
+
+const ARCHER_VISUAL_OFFSET := Vector2(0, -60)
 
 func _ready():
 	var archer_scene = preload("res://scenes/archer.tscn")
 	var archer = archer_scene.instantiate()
-	
-	archer.damage = damage
 	add_child(archer)
-	
-	# Offset the archer so it sits on top of the tower visually
-	archer.position = Vector2(0, -60)
-	
-	var timer = archer.get_node("Timer")
-	if timer:
-		timer.wait_time = rate_of_fire
-		timer.start()
+	archer.position = ARCHER_VISUAL_OFFSET

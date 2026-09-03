@@ -4,6 +4,14 @@ extends Node2D
 # size, so one grid lookup covers every neighbour that could possibly matter.
 const SEPARATION_RADIUS := 32.0
 
+## Identifies this level for PlayerData's gold-once ledger. Must be unique
+## across every level that ever ships.
+@export var level_id: String = "map1"
+## Gold paid on this level's first clear. PLACEHOLDER — implementation_plan.md
+## marks gold-unlock pricing as TBD until the number of levels is known, and
+## this reward is priced against those same unknowns. Tune later, not now.
+@export var gold_reward: int = 10
+
 @export var zombie_count: int = 50
 @export var spawn_interval: float = 0.05
 @export var debug_logging: bool = false
@@ -28,9 +36,36 @@ var zombie_grid_nodes: Dictionary = {}
 var dragging_type: String = ""
 var ghost: Node2D = null
 
+
+# --- Round lifecycle ----------------------------------------------------
+#
+# Towers are placed in PRE_ROUND only; the loadout locks the moment a round
+# starts. This state — round_state, base_health, zombies_to_resolve,
+# placed_towers — is round-scoped and is never written to PlayerData. See
+# CLAUDE.md's state boundary table.
+
+enum RoundState { PRE_ROUND, IN_ROUND, ROUND_WON, ROUND_LOST }
+
+signal round_started
+## gold_awarded is the amount ACTUALLY paid — 0 on a loss, and 0 on a replay
+## of an already-cleared level (the gold-once ledger), even though won is
+## true in that case. Listeners must not assume won implies gold_awarded > 0.
+signal round_ended(won: bool, gold_awarded: int)
+
+var round_state: RoundState = RoundState.PRE_ROUND
+var base_health: Node = null
+var zombies_to_resolve: int = 0
+var placed_towers: Array = []
+
+var round_ui: CanvasLayer = null
+
+
 func _ready() -> void:
 	add_to_group("map")
 	generate_flow_field()
+
+	base_health = preload("res://scripts/base_health.gd").new()
+	add_child(base_health)
 
 	# Instantiate Sidebar and Ghost
 	var sidebar_scene = preload("res://scenes/build_sidebar.tscn")
@@ -41,6 +76,11 @@ func _ready() -> void:
 	var ghost_scene = preload("res://scenes/ghost_tower.tscn")
 	ghost = ghost_scene.instantiate()
 	add_child(ghost)
+
+	round_ui = preload("res://scripts/round_ui.gd").new()
+	round_ui.name = "RoundUI"
+	add_child(round_ui)
+	round_ui.setup(self)
 
 
 func _physics_process(_delta: float) -> void:
@@ -84,14 +124,109 @@ func get_zombies_in_radius(world_pos: Vector2, radius: float) -> Array:
 	return result
 
 
-# --- Building ----------------------------------------------------------------
+# --- Round lifecycle ----------------------------------------------------
 
 func _on_start_button_pressed() -> void:
 	$CanvasLayer/StartButton.hide()
+	_start_round()
+
+
+func _start_round() -> void:
+	# Force-cancel any in-progress drag — the loadout locks now.
+	dragging_type = ""
+	if ghost:
+		ghost.hide_ghost()
+
+	round_state = RoundState.IN_ROUND
+	base_health.reset()
+	zombies_to_resolve = zombie_count
+	round_started.emit()
 	spawn_zombies()
 
 
+## Called by round_ui's "Play Again" button after a win or loss. Clears the
+## board so the next round is placed from scratch — placement layout is not
+## part of what persists between rounds; upgrades are.
+func start_new_round() -> void:
+	_clear_placed_towers()
+	_clear_all_zombies()
+	# Reset lives here as well as in _start_round(), so the pre-round HUD shows
+	# the lives you're about to play with rather than "0/20" left over from the
+	# loss you just took. _start_round() resetting again is harmless.
+	base_health.reset()
+	round_state = RoundState.PRE_ROUND
+	$CanvasLayer/StartButton.show()
+
+
+## A zombie died to tower damage. has_method-called from zombie.gd — guarded
+## there, and again here, against calls arriving after the round already
+## ended (a zombie's death this frame can outrace _end_round firing on a
+## sibling's escape the same frame).
+func on_zombie_killed(silver_reward: int) -> void:
+	if round_state != RoundState.IN_ROUND:
+		return
+	PlayerData.earn_silver(silver_reward)
+	zombies_to_resolve -= 1
+	_check_round_complete()
+
+
+## A zombie reached the end unharmed. Costs a life instead of a silent
+## despawn; no silver.
+func on_zombie_escaped() -> void:
+	if round_state != RoundState.IN_ROUND:
+		return
+	base_health.lose_life()
+	zombies_to_resolve -= 1
+	if base_health.lives <= 0:
+		_end_round(false)
+		return
+	_check_round_complete()
+
+
+func _check_round_complete() -> void:
+	if round_state == RoundState.IN_ROUND and zombies_to_resolve <= 0:
+		_end_round(true)
+
+
+func _end_round(won: bool) -> void:
+	round_state = RoundState.ROUND_WON if won else RoundState.ROUND_LOST
+
+	var gold_awarded := 0
+	if won:
+		if PlayerData.award_level_gold(level_id, gold_reward):
+			gold_awarded = gold_reward
+		# else: level already cleared before — silver earned this round is
+		# kept regardless (silver has no discard point; see CLAUDE.md's
+		# Economy section), gold_awarded stays 0.
+
+	if not won:
+		_clear_all_zombies()
+
+	# The round's whole silver haul lands in one write here rather than one per
+	# kill. Runs on a loss too — silver earned before dying is kept.
+	PlayerData.save_if_dirty()
+
+	round_ended.emit(won, gold_awarded)
+
+
+func _clear_all_zombies() -> void:
+	for z in get_tree().get_nodes_in_group("zombie"):
+		z.queue_free()
+
+
+func _clear_placed_towers() -> void:
+	for tower in placed_towers:
+		if is_instance_valid(tower):
+			tower.queue_free()
+	placed_towers.clear()
+	occupied_cells.clear()
+
+
+# --- Building ----------------------------------------------------------------
+
 func _on_start_drag(tower_type: String):
+	if round_state != RoundState.PRE_ROUND:
+		return
 	dragging_type = tower_type
 	ghost.set_tower(tower_type)
 
@@ -122,6 +257,10 @@ func _input(event):
 
 
 func is_valid_placement(world_pos: Vector2) -> bool:
+	if round_state != RoundState.PRE_ROUND:
+		return false
+	if placed_towers.size() >= PlayerData.slot_count:
+		return false
 	var local_pos = tile_map.to_local(world_pos)
 	var cell = tile_map.local_to_map(local_pos)
 	if not walls_dict.has(cell):
@@ -145,6 +284,7 @@ func place_tower(type: String, world_pos: Vector2):
 	var tower = tower_scene.instantiate()
 	tower.global_position = cell_center
 	add_child(tower)
+	placed_towers.append(tower)
 
 	occupied_cells[cell] = true
 
@@ -234,6 +374,11 @@ func is_wall(world_pos: Vector2) -> bool:
 func spawn_zombies() -> void:
 	var zombie_scene = preload("res://scenes/zombie.tscn")
 	for i in range(zombie_count):
+		# The round can end mid-spawn (all lives lost to early escapees) —
+		# stop feeding zombies onto a board that already resolved.
+		if round_state != RoundState.IN_ROUND:
+			return
+
 		var zombie = zombie_scene.instantiate()
 
 		var random_angle = randf() * TAU

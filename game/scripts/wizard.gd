@@ -1,23 +1,34 @@
 extends Area2D
 
-@export var damage: int = 10
-@export var rate_of_fire: float = 1.0
-@export var wizard_radius: float = 100.0
-@export var fire_damage_radius: float = 100.0
+## Resolves its own stats from TowerStats at spawn — do not @export damage,
+## range or fire-rate here. See tower_stats.gd for why.
+const TOWER_TYPE := "wizard"
+
+## AoE splash radius. Not one of the three upgrade tracks (range/fire-rate/
+## damage) the player buys — "range" governs target ACQUISITION only. If
+## splash size becomes upgradeable later, it belongs in TowerStats as a
+## fourth track, not bolted onto "range".
+const AOE_RADIUS := 100.0
 
 @onready var collision_shape = $CollisionShape2D
 @onready var timer = $Timer
 
+var damage: int = 0
+
 func _ready():
+	var stats: Dictionary = TowerStats.get_stats(TOWER_TYPE)
+	damage = stats["damage"]
+
 	if collision_shape and collision_shape.shape is CircleShape2D:
 		collision_shape.shape = collision_shape.shape.duplicate()
-		collision_shape.shape.radius = wizard_radius
-	
+		collision_shape.shape.radius = stats["range"]
+
 	if timer:
-		timer.wait_time = rate_of_fire * randf_range(0.95, 1.05)
+		timer.wait_time = stats["attack_interval"] * randf_range(0.95, 1.05)
 		timer.stop()
-		# Add a random initial delay so they don't fire on the exact same frame
-		await get_tree().create_timer(randf_range(0.0, rate_of_fire)).timeout
+		# Random initial delay so multiple wizards don't fire on the exact
+		# same frame.
+		await get_tree().create_timer(randf_range(0.0, timer.wait_time)).timeout
 		if is_instance_valid(timer):
 			timer.start()
 
@@ -27,7 +38,7 @@ func _on_timer_timeout():
 	for t in targets:
 		if t.is_in_group("zombie"):
 			zombies.append(t)
-			
+
 	if zombies.size() > 0:
 		# Pick a random zombie so multiple wizards don't shoot the exact same target
 		var target = zombies[randi() % zombies.size()]
@@ -35,6 +46,6 @@ func _on_timer_timeout():
 		var fire = fire_scene.instantiate()
 		fire.target = target
 		fire.damage = damage
-		fire.aoe_radius = fire_damage_radius
+		fire.aoe_radius = AOE_RADIUS
 		get_parent().add_child(fire)
 		fire.global_position = global_position

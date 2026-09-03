@@ -10,6 +10,10 @@ const MAX_SEPARATION_CHECKS := 24
 const ARRIVAL_RADIUS := 30.0
 
 @export var speed: float = 200.0
+## Silver the round controller earns via PlayerData when this zombie is
+## KILLED (not when it escapes — see _die() vs _escape() below).
+@export var silver_reward: int = 2
+
 var hp: int = 10
 
 @onready var map = get_parent()
@@ -35,7 +39,7 @@ func _physics_process(delta: float) -> void:
 	if flow_dir == Vector2.ZERO:
 		flow_dir = global_position.direction_to(map.end_point.global_position)
 		if global_position.distance_to(map.end_point.global_position) < ARRIVAL_RADIUS:
-			queue_free()
+			_escape()
 			return
 
 	var desired_dir := (flow_dir + _separation() * 1.5).normalized()
@@ -110,4 +114,21 @@ func take_damage(amount: int) -> void:
 		return
 	hp -= amount
 	if hp <= 0:
-		queue_free()
+		_die()
+
+
+## Killed by a tower. Awards silver via the round controller, then despawns.
+## has_method-guarded so clean_area.tscn's stripped-down map (no round
+## lifecycle) still works — a killed zombie there just despawns as before.
+func _die() -> void:
+	if map.has_method("on_zombie_killed"):
+		map.on_zombie_killed(silver_reward)
+	queue_free()
+
+
+## Reached the end point unharmed. Costs the round a life instead of a silent
+## despawn. Same has_method guard as _die() for clean_area.tscn's benefit.
+func _escape() -> void:
+	if map.has_method("on_zombie_escaped"):
+		map.on_zombie_escaped()
+	queue_free()

@@ -13,42 +13,39 @@ Your prototype already has solid foundations:
 | System | Status | Notes |
 |---|---|---|
 | Flow-field pathfinding | ✅ Working | BFS/Dijkstra with corner-cut prevention |
-| Swarm zombie AI | ✅ Working | Flow-field + boids separation + wall sliding |
-| Tower building (drag & drop) | ✅ Working | Ghost preview, grid snapping, validity check |
-| Archer tower + homing arrows | ✅ Working | Single-target, desync'd timers |
-| Wizard tower + AoE fireballs | ✅ Working | Splash damage on impact |
-| Player controller | ✅ Working | Top-down movement (currently disconnected) |
-| Wave spawning | ⚠️ Basic | Single wave, no progression |
-| Economy / resources | ❌ Missing | Towers are free |
-| Win/lose conditions | ❌ Missing | Zombies despawn at end with no penalty |
-| Meta-progression (incremental) | ❌ Missing | Core mechanic of the reference game |
-| UI (HUD, menus, upgrades) | ❌ Missing | Only FPS counter + start button |
+| Swarm zombie AI | ✅ Working (to ~250 enemies) | Flow-field + boids separation + wall sliding; see CLAUDE.md's Performance section for the open perf ceiling above that |
+| Tower building (drag & drop) | ✅ Working | Ghost preview, grid snapping, validity check; now gated to the pre-round phase |
+| Archer tower + homing arrows | ✅ Working | Single-target, stats resolved from `TowerStats` |
+| Wizard tower + AoE fireballs | ✅ Working | Splash damage on impact, stats resolved from `TowerStats` |
+| Player controller | 🗑️ Removed by decision | `player.gd`/`player.tscn`/`test.tscn` orphaned — pure tower defense, no player unit |
+| Economy (silver/gold) | ✅ Working | `PlayerData` + `TowerStats`; kill → silver, first clear → gold, upgrades cost silver |
+| Round lifecycle & lose condition | ✅ Working | `map1.gd`'s `RoundState`; single wave only (M2 adds progression) |
+| Upgrade screen | ✅ Working (crude) | `round_ui.gd` — unstyled, thrown away at UI-0/UI-1 |
+| Wave progression | ❌ Missing | M2 — single wave only right now |
+| Meta-progression (incremental) | ✅ Working | Via silver/gold + `PlayerData`'s `user://` save — no separate "souls" system needed |
+| UI (HUD, menus) | ⚠️ Crude only | `round_ui.gd` proves the loop; real HUD/theme is UI-0 through UI-4, `ui_plan.md` |
 | Multiple enemy types | ❌ Missing | Only zombies |
 | Multiple maps | ❌ Missing | Only map1 |
+| Cooldown abilities | ❌ Missing | M2 — the only planned in-round player input, not built yet |
 
 ---
 
-## User Review Required
+## Decisions (settled 2026-09-03)
 
-> [!IMPORTANT]
-> **Theme Confirmation**: You said "medieval" — I'm interpreting this as: stone castles, arrow slits, catapults, knights, undead hordes (zombies → skeletons, wraiths, etc.), wizards, holy magic. Is this the right vibe, or did you have something more specific in mind?
+The questions this section used to ask have been answered. They are no longer open.
 
-> [!IMPORTANT]
-> **Player Character Role**: Your prototype has a playable `CharacterBody2D` but it's disconnected from gameplay. In *Sir, We Have an Orc Problem!*, there is no player character — you just place turrets. Do you want to:
-> - **A)** Remove the player character and go pure tower defense (like the reference game)
-> - **B)** Keep the player character as a hero unit that can move around, attack, and interact with the battlefield
-> - **C)** Something else?
+| Question | Decision |
+|---|---|
+| Theme | **Medieval.** The `asserts/` classroom art is shelved, not used. |
+| Player character | **Removed.** Pure tower defense — `player.gd`, `player.tscn`, `test.tscn` are orphaned by decision. |
+| Meta-progression | **Yes**, via silver + gold. There is no "souls" currency. |
+| In-round play | **Cooldown abilities.** Towers are pre-placed and auto-fire. |
+| Upgrade scope | **Per tower type, permanent** across all levels. |
 
-> [!IMPORTANT]
-> **Incremental / Roguelite Loop**: The core hook of *Sir, We Have an Orc Problem!* is that you **earn permanent upgrades even when you lose**. Failed runs still give you currency to unlock better towers, increase damage, etc. Do you want this incremental meta-progression loop? This is a major architectural decision.
-
----
-
-## Open Questions
-
-1. **Art Style**: Are you planning to use pixel art, hand-drawn, or placeholder sprites for now? This affects UI layout and scale.
-2. **Scope**: Are you targeting a short game (1-2 hour completionist run, like the reference) or something longer?
-3. **Enemies**: The reference game has only orcs. Do you want variety (zombies, skeletons, armored knights, siege units) or keep it simple with one enemy type that just scales in HP/speed?
+> [!WARNING]
+> The economy described in the original §1.1 — gold spent to place towers, 50g archers, a build
+> phase between waves — is **wrong and has been replaced**. See §1.1 below. Tower cost columns
+> elsewhere in this document are stale; ignore them.
 
 ---
 
@@ -60,39 +57,99 @@ These changes fix existing issues and establish the minimum playable loop.
 
 ---
 
-#### 1.1 — Economy System `[NEW]`
+#### 1.1 — Economy System `[REWRITTEN]`
 
-##### [NEW] [economy_manager.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/economy_manager.gd)
-- Autoload singleton managing gold
-- `var gold: int = 100` (starting gold)
-- `signal gold_changed(new_amount)`
-- `func earn(amount)` / `func spend(amount) -> bool`
-- Tower costs: Archer = 50g, Wizard = 100g
-- Zombies drop gold on death (base 1-3g per kill)
+**Nothing is purchased during a round.** Towers are placed in a pre-round phase from unlocked
+types into a limited number of slots; once the round begins the loadout is locked.
 
-##### [MODIFY] [map1.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/map1.gd)
-- Check `EconomyManager.spend(cost)` before placing tower
-- Update ghost tower validity to include affordability
+| Currency | Earned | Supply | Buys |
+|---|---|---|---|
+| **Silver** | per enemy killed | infinite — farmable by replaying levels | the three upgrade tracks |
+| **Gold** | completing a level, **once only** | finite = levels × gold per level | new tower types, new levels, extra placement slots |
 
-##### [MODIFY] [zombie.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/zombie.gd)
-- Call `EconomyManager.earn(gold_value)` on death
-- Remove file I/O logging (performance fix)
+Towers upgrade on three axes only: **range, fire-rate, damage** — per tower type, permanent,
+applying to every tower of that type in every level.
+
+##### ✅ [DONE] `scripts/player_data.gd`
+- Autoload. The persistent save, written to `user://save.json`.
+- `silver`, `gold`, `upgrades: {tower_type: {range, fire_rate, damage}}`,
+  `unlocked_towers`, `cleared_levels` (the gold-once ledger), `slot_count`
+- `signal silver_changed(n)` / `signal gold_changed(n)`
+- `earn_silver(n)`, `spend_silver(n) -> bool`, `spend_gold(n) -> bool`
+- `award_level_gold(level_id)` — no-ops if the level is already in `cleared_levels`
+- Verified: fresh-save defaults, overspend rejection, gold-once ledger, a real disk
+  save/reload round-trip (not just re-calling load on unchanged memory), and schema
+  backfill for a save missing a newer tower's upgrade entry.
+
+##### ✅ [DONE] `scripts/tower_stats.gd`
+- Resolves `base + upgrade_bonus` per tower type into final range / attack-interval / damage
+- Owns the silver cost curve per track — **exponential** (`10 * 1.35^level`)
+- The single source of truth for tower numbers
+- `try_upgrade()` spends silver and increments atomically — verified no upgrade leaks on
+  insufficient silver
+
+##### ✅ [DONE] `scripts/archer.gd`, `scripts/wizard.gd`, `scripts/archer_tower.gd`
+- Removed `@export var damage`/`rate_of_fire`/`wizard_radius`/`fire_damage_radius`; both
+  towers query `TowerStats.get_stats(TOWER_TYPE)` in their own `_ready()` instead
+- `archer_tower.gd` no longer pushes stats onto the archer after instancing — this also
+  fixed a pre-existing bug where it clobbered `archer.gd`'s own rate jitter
+- `archer.tscn`'s `CollisionShape2D` scale corrected 4×→1× to match the new
+  direct-radius assignment (was compensating for a hardcoded shape radius that no
+  longer exists)
+- Level-0 stats verified identical to the pre-refactor game (no balance change) via a
+  live playtest: resolved damage/range/interval matched exactly, and an upgrade bought
+  mid-session applied to the next tower placed
+- `wizard_tower.tscn` having no script of its own no longer matters — retires that
+  asymmetry
+
+##### ✅ [DONE] `scripts/zombie.gd`
+- `_die()` calls `map.on_zombie_killed(silver_reward)` (has_method-guarded), which calls
+  `PlayerData.earn_silver()` — routed through the map rather than calling PlayerData
+  directly, so the map can also track `zombies_to_resolve` for round-completion. See
+  CLAUDE.md's Round lifecycle section.
+
+##### ✅ [DONE] `scripts/map1.gd`
+- Placement gated on `round_state == PRE_ROUND` **and** `PlayerData.slot_count`, not on
+  affordability (nothing costs anything to place — see the economy table above)
+- The ghost preview, validity check and grid snapping all survive unchanged
+- Verified live: a 5th placement attempt at the default `slot_count` (4) is rejected, and
+  raising `slot_count` un-blocks the identical cell — confirms the rejection is the slot
+  cap, not a coincidentally-invalid cell
+
+**Tuning consequences.** Silver being infinite makes the cost curve the entire difficulty knob;
+grinding is intended, not a failure state. Permanent upgrades plus replayable levels means
+early levels become silver farms rather than content, so every level must be tuned against an
+assumed upgrade level.
+
+**Resolved:** silver earned during a round is kept even on a loss — see CLAUDE.md's Tower
+stats / state-boundary section for why this falls out of the architecture rather than needing
+its own rule.
 
 ---
 
-#### 1.2 — Base Health & Win/Lose `[NEW]`
+#### ✅ [DONE] 1.2 — Round Lifecycle & Lose Condition `[REWRITTEN — was "Base Health & Win/Lose"]`
 
-##### [NEW] [base_health.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/base_health.gd)
-- `var lives: int = 20`
-- `signal life_lost(remaining)` / `signal game_over`
-- When zombie reaches `end_point`, deduct 1 life instead of silently despawning
+Built as part of M1, not a separate BaseHealth-plus-game_over_screen pair — see
+[CLAUDE.md](CLAUDE.md)'s "Round lifecycle" architecture section for the full design and
+[base_health.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/base_health.gd) /
+[map1.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/map1.gd) /
+[round_ui.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/round_ui.gd)
+for the code. Differences from the original plan, and why:
 
-##### [NEW] [game_over_screen.tscn](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scenes/game_over_screen.tscn)
-- Shows wave reached, kills, gold earned
-- "Retry" and "Return to Menu" buttons
-
-##### [MODIFY] [zombie.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/zombie.gd)
-- On reaching end_point: `BaseHealth.take_damage(1)` then `queue_free()`
+- **No `game_over_screen.tscn`.** `round_ui.gd`'s result panel covers win/lose/replay for M1 —
+  crude and unstyled on purpose (real screens are UI-4, `ui_plan.md`). "Wave reached" doesn't
+  apply yet (single wave, M1 scope); kills/gold-earned are visible via the status readout.
+- **`base_health.gd` is round-scoped, not an autoload.** Lives reset every round
+  (`base_health.reset()`, called from `_start_round()`) and are never written to
+  `PlayerData`/`user://` — see the state boundary table. An autoload BaseHealth would have
+  made that boundary easy to violate by accident.
+- **`take_damage(1)` became `on_zombie_escaped()`** on `map1`, not a method on BaseHealth that
+  zombies call directly — the map needed to intercept the event anyway (to track
+  `zombies_to_resolve` for round-completion), so zombies talk to the map, and the map talks to
+  `base_health`.
+- **A round can win with escapes in it.** Completion is "every spawned zombie resolved,
+  win or lose" — not "zero zombies got through." Confirmed live: a 25-zombie round with 3
+  escapes (17/20 lives) still resolved as a win.
 
 ---
 
@@ -103,7 +160,8 @@ These changes fix existing issues and establish the minimum playable loop.
   - Wave 1: 20 zombies, speed 150
   - Wave 2: 35 zombies, speed 160, +5 HP
   - Wave N: exponential scaling
-- Inter-wave build phase (10-15 seconds to place towers)
+- Inter-wave breather (10-15s). **Not** a build phase — placement happens once, before the
+  round; nothing can be placed or bought between waves.
 - `signal wave_started(wave_num)` / `signal wave_cleared` / `signal all_waves_complete`
 - Bonus gold between waves
 
@@ -119,13 +177,16 @@ These changes fix existing issues and establish the minimum playable loop.
 
 #### 2.1 — New Tower Types
 
-| Tower | Type | Cost | Mechanic |
+| Tower | Type | Gold unlock | Mechanic |
 |---|---|---|---|
-| Archer Tower | Single-target | 50g | Fast arrows, low damage (existing) |
-| Wizard Tower | AoE splash | 100g | Fireballs (existing) |
-| **Catapult** | AoE + slow | 150g | Boulders deal high damage in a radius, briefly slow enemies |
-| **Boiling Oil** | Ground AoE | 75g | Placed on path, damages enemies walking over it (DoT zone) |
-| **Holy Shrine** | Buff/Support | 200g | Boosts nearby towers' attack speed by 20% |
+| Archer Tower | Single-target | starter | Fast arrows, low damage (existing) |
+| Wizard Tower | AoE splash | starter | Fireballs (existing) |
+| **Catapult** | AoE + slow | TBD | Boulders deal high damage in a radius, briefly slow enemies |
+| **Boiling Oil** | Ground AoE | TBD | Placed on path, damages enemies walking over it (DoT zone) |
+| **Holy Shrine** | Buff/Support | TBD | Boosts nearby towers' attack speed by 20% |
+
+Unlock prices are **TBD**: gold supply is finite and bounded by level count, so these can't be
+priced until the number of levels is known.
 
 ##### [NEW] `scenes/catapult_tower.tscn`, `scripts/catapult_tower.gd`, `scenes/boulder.tscn`, `scripts/boulder.gd`
 ##### [NEW] `scenes/oil_trap.tscn`, `scripts/oil_trap.gd`
@@ -161,13 +222,20 @@ All enemies belong to a dark fantasy goblin horde theme.
 
 ---
 
-#### 2.3 — Tower Upgrades (In-Run)
+#### 2.3 — Tower Upgrades `[REWRITTEN — was "In-Run"]`
 
-##### [NEW] [tower_upgrade_system.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/tower_upgrade_system.gd)
-- Click placed tower → upgrade panel appears
-- 3 upgrade tiers per tower (costs escalate)
-- Each tier increases damage, range, or fire rate
-- Sell tower for 60% refund
+> [!WARNING]
+> This section previously described clicking a placed tower mid-round to buy tiered upgrades,
+> and selling towers for a 60% refund. **Both are gone.** Nothing is bought or sold during a
+> round, and upgrades never attach to an individual tower.
+
+Upgrades are bought on the **upgrade screen between rounds** (§3.1), cost **silver**, and apply
+**per tower type, permanently** — buying archer damage buffs every archer in every level,
+forever. There is no per-instance upgrade state, and therefore nothing to save per tower and
+no refund mechanic.
+
+The three tracks are the whole system: **range, fire-rate, damage.** Resolution lives in
+`TowerStats` (§1.1), which towers query at spawn.
 
 ---
 
@@ -177,23 +245,28 @@ This is what makes the reference game addictive — earning permanent upgrades a
 
 ---
 
-#### 3.1 — Persistent Currency & Upgrades
+#### 3.1 — Persistent Progression `[REWRITTEN]`
 
-##### [NEW] [meta_progression.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/meta_progression.gd)
-- Autoload singleton
-- `var souls: int` — permanent currency earned per run (based on kills + waves survived)
-- Save/load to `user://save.json`
-- Permanent upgrade tree:
-  - **+10% Tower Damage** (repeatable, escalating cost)
-  - **+1 Starting Gold** (repeatable)
-  - **+1 Base HP** (repeatable)
-  - **Unlock Catapult Tower** (one-time)
-  - **Unlock Holy Shrine** (one-time)
-  - **+5% Attack Speed** (repeatable)
+Persistence is **not** a separate Phase 3 system — `PlayerData` (§1.1) already is the save, and
+exists from M1. What lands here is the screen that spends what it holds.
 
-##### [NEW] [upgrade_menu.tscn](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scenes/upgrade_menu.tscn)
-- Between-runs upgrade shop screen
-- Shows earned souls, available upgrades, costs
+##### [NEW] `scenes/upgrade_screen.tscn`
+- **Silver** → the three tracks per tower type: range, fire-rate, damage.
+  Repeatable, exponential cost.
+- **Gold** → one-time unlocks: new tower types, new levels, extra placement slots.
+  Finite supply, so these are build-defining choices rather than a completion checklist.
+- Shows current silver / gold, each track's level, and the next cost
+
+##### The state boundary
+Keep these in separate containers — the only expensive-to-retrofit decision in the design:
+
+| Persistent (`user://`) | Round-scoped (discarded) |
+|---|---|
+| silver, gold | lives, current wave |
+| upgrade level per tower type | kills, silver earned this round |
+| unlocked tower types | ability cooldowns |
+| cleared levels (gold-once ledger) | placed tower instances |
+| placement slot count | |
 
 ---
 
@@ -205,7 +278,8 @@ This is what makes the reference game addictive — earning permanent upgrades a
 - "Quit"
 
 ##### [NEW] [run_manager.gd](file:///c:/disk/godot/projects/zombie%20game%20prototype%201/game/scripts/run_manager.gd)
-- Manages run lifecycle: Menu → Level → Game Over → Souls Earned → Upgrade Shop → Menu
+- Manages the loop: Level Select → Pre-round Placement → Round → Result (silver always, gold on
+  first clear) → Upgrade Screen → Level Select
 - Tracks per-run stats (kills, waves, gold earned)
 
 ---
@@ -225,7 +299,13 @@ This is what makes the reference game addictive — earning permanent upgrades a
 
 ---
 
-#### 4.2 — Special Abilities (Cooldown-Based)
+#### 4.2 — Special Abilities (Cooldown-Based) `[PROMOTED — not polish]`
+
+> [!IMPORTANT]
+> Filed under Phase 4 when this document assumed a classic build-during-the-wave loop. With
+> towers pre-placed and no mid-round spending, **abilities are the only live input a round
+> has** — without them a round is watched, not played. Build these in **M2**, alongside waves
+> and lives, not as a polish pass.
 
 | Ability | Cooldown | Effect |
 |---|---|---|
@@ -254,47 +334,50 @@ This is what makes the reference game addictive — earning permanent upgrades a
 
 ---
 
-## Immediate Bug Fixes (Should Do Now)
+## Immediate Bug Fixes `[SUPERSEDED — see CLAUDE.md's Known issues]`
 
-> [!WARNING]
-> These issues exist in your current code and should be fixed regardless of which phase you start:
-
-1. **`map1.gd`** writes to `res://zombie_pos.txt` every frame in `_process()` — causes unnecessary disk I/O. Remove or gate behind a debug flag.
-2. **`fire.gd`** iterates ALL zombies in scene tree on impact (`get_tree().get_nodes_in_group("zombie")`) — use `Area2D` overlap check instead for O(nearby) instead of O(all).
-3. **Folder typo**: Assets are in `res://asserts/` instead of `res://assets/` — cosmetic but confusing.
+The three items originally here are stale. Two are fixed (the per-frame disk write, `fire.gd`'s
+global scan); the third (`asserts/` typo) is still open. **CLAUDE.md's "Known issues" section is
+the current, maintained list** — this document doesn't duplicate it going forward, to avoid the
+two drifting apart again.
 
 ---
 
-## Verification Plan
+## Verification Plan `[PARTIALLY SUPERSEDED]`
+
+The items below describing gold-to-place, wave progression, and a 500-zombie 60fps target are
+**stale** — gold isn't spent on placement (see §1.1), waves don't progress yet (M2), and
+500 zombies at 60fps is a known **unmet** target (CLAUDE.md's Performance section: practical
+budget is ~200–250 enemies, and the gap is a real open problem, not a rounding error).
+
+What M1 actually verified, live, against the running game rather than by inspection — this is
+the model for how future milestones should be checked, not a one-time record:
+
+- Tower stats resolve identically to the pre-refactor game at upgrade level 0 (no accidental
+  balance change), and an upgrade purchase changes the next-placed tower's stats
+- The slot cap rejects a placement over the limit, and un-blocks the identical cell when the
+  cap is raised (ruling out a coincidentally-invalid test cell before trusting the result)
+- A full round: place → start → kill → earn silver → win → gold awarded once → replay → gold
+  **not** re-awarded (the ledger) → buy an upgrade via a real button click → lose a round by
+  letting zombies through unopposed → lives hit exactly 0 → round ends without waiting for
+  every zombie to individually resolve
 
 ### Automated Tests
 - Flow-field correctness: spawn zombie at start, verify it reaches end
-- Economy: verify tower placement deducts gold, kills earn gold
-- Wave progression: verify wave count increments and difficulty scales
+- Round lifecycle: win awards gold once per level; loss ends the round the instant lives hit 0
+- (Still needed) Wave progression, once M2 builds it: verify wave count increments and scales
 
 ### Manual Verification
-- Play through 5+ waves to confirm difficulty curve feels right
-- Verify game-over triggers correctly when lives reach 0
-- Test tower placement on all valid/invalid cells
-- Performance test with 500+ zombies on screen (target: 60fps)
+- Play through progressive waves once M2 exists, to confirm the difficulty curve feels right
+- Test tower placement on every valid/invalid cell, including at and over the slot cap
+- Performance test at the ~200–250 enemy practical ceiling, not 500 — see CLAUDE.md before
+  attempting to raise that ceiling; six prior optimization attempts are already ruled out there
 
 ---
 
 ## Recommended Build Order
 
-| Priority | Work Item | Effort |
-|---|---|---|
-| 🔴 1 | Bug fixes (disk I/O, fire.gd AoE perf) | 1 hour |
-| 🔴 2 | Economy system (gold) | 2-3 hours |
-| 🔴 3 | Base health + game over | 2 hours |
-| 🔴 4 | Wave manager | 3-4 hours |
-| 🟡 5 | Enemy base class refactor | 3 hours |
-| 🟡 6 | New tower types (catapult, oil, shrine) | 4-5 hours |
-| 🟡 7 | New enemy types | 3-4 hours |
-| 🟡 8 | HUD | 3 hours |
-| 🟢 9 | Tower upgrades (in-run) | 4 hours |
-| 🟢 10 | Meta-progression + save/load | 5-6 hours |
-| 🟢 11 | Main menu + run flow | 3 hours |
-| 🟢 12 | Special abilities | 4-5 hours |
-| 🟢 13 | Polish (VFX, SFX, screen shake) | Ongoing |
-| 🟢 14 | Additional maps | 3-4 hours each |
+Superseded by the milestones in [CLAUDE.md](CLAUDE.md#build-order) — M1 closes the economic
+loop, M2 makes the round a game, M3 adds breadth, M4 is the UI pass. The per-item effort
+estimates below the old table were written against the buy-towers-with-gold economy and no
+longer apply.
