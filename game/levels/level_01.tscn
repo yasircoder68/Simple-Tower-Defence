@@ -6,6 +6,7 @@
 
 [node name="map1" type="Node2D" unique_id=4869005]
 script = ExtResource("1_map1")
+difficulty_scale = 1.6
 
 [node name="StartPoint" type="Marker2D" parent="." unique_id=2007836564]
 position = Vector2(32, 374)
