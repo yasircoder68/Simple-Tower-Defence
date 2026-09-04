@@ -11,7 +11,17 @@ var map: Node2D = null
 var silver_label: Label
 var gold_label: Label
 var lives_label: Label
+var wave_label: Label
 var controls_hint_label: Label
+
+var breather_panel: Panel
+var breather_label: Label
+var skip_breather_button: Button
+
+## Mirrored from wave_started rather than read off wave_manager, so this stays
+## signal-driven — the manager's wave list is its own business.
+var _wave_num: int = 0
+var _wave_total: int = 0
 
 var result_panel: Panel
 var result_label: Label
@@ -33,7 +43,12 @@ func setup(map_ref: Node2D) -> void:
 	map.round_started.connect(_on_round_started)
 	map.round_ended.connect(_on_round_ended)
 
+	map.wave_manager.wave_started.connect(_on_wave_started)
+	map.wave_manager.breather_started.connect(_on_breather_started)
+	map.wave_manager.all_waves_complete.connect(_on_all_waves_complete)
+
 	_build_status_labels()
+	_build_breather_panel()
 	_build_upgrade_panel()
 	_build_result_panel()
 
@@ -55,6 +70,8 @@ func _build_status_labels() -> void:
 	vbox.add_child(gold_label)
 	lives_label = Label.new()
 	vbox.add_child(lives_label)
+	wave_label = Label.new()
+	vbox.add_child(wave_label)
 
 	controls_hint_label = Label.new()
 	# Manual break, not autowrap: left unconstrained, a single-line hint runs
@@ -71,12 +88,46 @@ func _build_status_labels() -> void:
 	vbox.add_child(controls_hint_label)
 
 
+## Countdown to the next wave, plus a way out of it. Occupies the top-centre
+## slot the StartButton uses — the two are never visible at once, since the
+## button only shows in PRE_ROUND and a breather only happens mid-round.
+func _build_breather_panel() -> void:
+	breather_panel = Panel.new()
+	breather_panel.anchor_left = 0.5
+	breather_panel.anchor_right = 0.5
+	breather_panel.offset_left = -110
+	breather_panel.offset_right = 110
+	breather_panel.offset_top = 20
+	breather_panel.offset_bottom = 92
+	breather_panel.hide()
+	add_child(breather_panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 8
+	vbox.offset_top = 6
+	vbox.offset_right = -8
+	vbox.offset_bottom = -6
+	breather_panel.add_child(vbox)
+
+	breather_label = Label.new()
+	breather_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(breather_label)
+
+	skip_breather_button = Button.new()
+	skip_breather_button.name = "SkipBreatherButton"
+	skip_breather_button.text = "Skip"
+	skip_breather_button.pressed.connect(_on_skip_breather_pressed)
+	vbox.add_child(skip_breather_button)
+
+
 func _build_upgrade_panel() -> void:
 	upgrade_panel = Panel.new()
 	upgrade_panel.offset_left = 10
-	upgrade_panel.offset_top = 230 # status vbox above wraps to 2 lines now (90-220)
+	upgrade_panel.offset_top = 255 # status vbox gained the wave line (90-245)
 	upgrade_panel.offset_right = 270
-	upgrade_panel.offset_bottom = 470
+	upgrade_panel.offset_bottom = 495
 	add_child(upgrade_panel)
 
 	var vbox := VBoxContainer.new()
@@ -179,8 +230,47 @@ func _upgrades_allowed() -> bool:
 	return map.round_state == map.RoundState.PRE_ROUND
 
 
+## Ticks the breather countdown. Polled rather than signalled: a Timer's
+## time_left changes every frame and firing a signal per frame for one label
+## would be worse than reading it.
+func _process(_delta: float) -> void:
+	if breather_panel == null or not breather_panel.visible:
+		return
+	var remaining: float = map.wave_manager.get_breather_remaining()
+	breather_label.text = "Next wave in %ds" % ceili(remaining)
+
+
+func _on_wave_started(wave_num: int, wave_total: int, _enemy_count: int) -> void:
+	_wave_num = wave_num
+	_wave_total = wave_total
+	# Hide here as well as in the skip handler: a breather also ends by simply
+	# timing out, and that path never touches the button.
+	breather_panel.hide()
+	_refresh_status()
+
+
+func _on_breather_started(_seconds: float) -> void:
+	breather_panel.show()
+
+
+func _on_all_waves_complete() -> void:
+	breather_panel.hide()
+
+
+func _on_skip_breather_pressed() -> void:
+	map.wave_manager.skip_breather()
+	# Hidden immediately rather than waiting for wave_started, following the
+	# same rule Play Again learned: hide UI state in the handler that changes
+	# it, don't assume a lifecycle signal covers every entry point.
+	breather_panel.hide()
+
+
 func _on_round_started() -> void:
 	result_panel.hide()
+	# Cleared here, then repopulated microseconds later by wave_started —
+	# _start_round() emits round_started before wave_manager.begin().
+	_wave_num = 0
+	_wave_total = 0
 	_refresh_status()
 	_refresh_upgrade_buttons() # lock them for the duration of the round
 
@@ -202,6 +292,10 @@ func _on_round_ended(won: bool, gold_awarded: int, silver_earned: int) -> void:
 
 	result_label.text = "%s\n%s" % [headline, earnings]
 	result_panel.show()
+	# A round can end DURING a breather — a loss on the escape that drains the
+	# last life — which would otherwise leave the countdown ticking over the
+	# result screen.
+	breather_panel.hide()
 	_refresh_status()
 	_refresh_upgrade_buttons()
 
@@ -212,6 +306,9 @@ func _on_play_again_pressed() -> void:
 	# start_new_round() (this button), so it wouldn't fire until the player
 	# presses Start again, leaving the result panel stuck on screen.
 	result_panel.hide()
+	breather_panel.hide()
+	_wave_num = 0
+	_wave_total = 0
 	map.start_new_round()
 	# base_health.reset() doesn't emit life_lost, so nothing else would refresh
 	# the lives label back to full here.
@@ -225,6 +322,10 @@ func _refresh_status() -> void:
 	silver_label.text = "Silver: %d" % PlayerData.silver
 	gold_label.text = "Gold: %d" % PlayerData.gold
 	lives_label.text = "Lives: %d/%d" % [map.base_health.lives, map.base_health.max_lives]
+	if _wave_total > 0:
+		wave_label.text = "Wave %d/%d" % [_wave_num, _wave_total]
+	else:
+		wave_label.text = "Wave: -"
 	controls_hint_label.modulate.a = 1.0 if _upgrades_allowed() else 0.4
 
 
