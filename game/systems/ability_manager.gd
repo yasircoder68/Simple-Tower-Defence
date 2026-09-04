@@ -17,6 +17,7 @@ signal cooldown_changed(remaining: float, total: float)
 const BOULDER_COOLDOWN := 3.0
 
 const BOULDER_SCENE := preload("res://entities/abilities/boulder/boulder.tscn")
+const AIM_MARKER_SCRIPT := preload("res://ui/aim_marker/aim_marker.gd")
 
 var map: Node2D = null
 
@@ -27,12 +28,31 @@ var enabled: bool = false
 
 var cooldown_remaining: float = 0.0
 
+## True between LMB press and release. Purely presentational — the cast itself
+## is gated by can_cast(), not by this.
+var aiming: bool = false
+
+var _marker: Node2D = null
+
 
 func setup(map_ref: Node2D) -> void:
 	map = map_ref
 
+	# Parented to the map so it lives in world space alongside the boulder it
+	# previews, rather than in the CanvasLayer the HUD uses.
+	_marker = AIM_MARKER_SCRIPT.new()
+	_marker.name = "AimMarker"
+	_marker.hide()
+	map.add_child(_marker)
+
 
 func _process(delta: float) -> void:
+	# Refreshed here rather than only on mouse motion, so a cooldown expiring
+	# while the player holds still recolours the marker immediately. set_ready()
+	# early-outs when unchanged, so this is not a per-frame redraw.
+	if aiming and _marker != null:
+		_marker.set_ready(can_cast())
+
 	if cooldown_remaining <= 0.0:
 		return
 	# Freeze the cooldown outside a round rather than letting it drain against
@@ -65,12 +85,25 @@ func _is_in_round() -> bool:
 func reset() -> void:
 	enabled = true
 	cooldown_remaining = 0.0
+	cancel_aim()
 	cooldown_changed.emit(0.0, BOULDER_COOLDOWN)
 
 
 ## Called with false from level_controller._end_round().
 func set_enabled(value: bool) -> void:
 	enabled = value
+	# A round can end mid-aim — on the escape that drains the last life, say —
+	# and the marker would otherwise be left painted on the result screen.
+	if not value:
+		cancel_aim()
+
+
+## Drops the aim without casting. Used by right-click, and by every path that
+## takes the game out of a round.
+func cancel_aim() -> void:
+	aiming = false
+	if _marker != null:
+		_marker.hide()
 
 
 func can_cast() -> bool:
@@ -104,9 +137,45 @@ func cast_boulder(world_pos: Vector2) -> bool:
 	return true
 
 
-## Hold LMB to aim, release to drop. Forwarded from level_controller._input()'s
-## IN_ROUND branch, which does nothing but route — all logic lives here, and
-## that is the entire reason Track B touches no file Track W touches.
-## B-3 fills this in.
-func handle_input(_event: InputEvent) -> void:
-	pass
+## Hold LMB to aim, release to drop; right-click cancels. Forwarded from
+## level_controller._input()'s IN_ROUND branch, which does nothing but route —
+## all logic lives here, and that is the entire reason Track B touches no file
+## Track W touches.
+##
+## No conflict with the tower drag that uses the same button: that branch is
+## PRE_ROUND-only and this one is reached only while IN_ROUND, so the two can
+## never be live at the same time.
+func handle_input(event: InputEvent) -> void:
+	if _marker == null:
+		return
+
+	if event is InputEventMouseMotion:
+		if aiming:
+			_marker.global_position = map.get_global_mouse_position()
+		return
+
+	if not (event is InputEventMouseButton):
+		return
+
+	if event.button_index == MOUSE_BUTTON_RIGHT and not event.pressed:
+		cancel_aim()
+		return
+
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	if event.pressed:
+		# Aiming is allowed even while cooling — the marker's colour reports
+		# whether releasing will actually throw. Pre-aiming during the 3s is
+		# most of what makes a short cooldown feel good to use.
+		aiming = true
+		_marker.global_position = map.get_global_mouse_position()
+		_marker.set_ready(can_cast())
+		_marker.show()
+	elif aiming:
+		# Read the position off the marker rather than the mouse again: the
+		# marker is what the player was looking at, so a release that arrives
+		# a frame after the last motion still throws where they aimed.
+		var target: Vector2 = _marker.global_position
+		cancel_aim()
+		cast_boulder(target)
