@@ -4,13 +4,14 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: playable core loop (M1 complete).** Pathfinding, swarm AI, tower building, the
-silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work —
-you can place towers, kill for silver, clear a level for gold, buy upgrades, and replay.
+**Status: playable core loop (M1 complete + tower editing).** Pathfinding, swarm AI, tower
+building/removal/moving, the silver/gold economy, permanent upgrades, round win/lose and
+`user://` persistence all work — you can place towers, rearrange them, kill for silver, clear a
+level for gold, buy upgrades, and replay.
 
 Not yet built: **progressive waves** (single wave only), **cooldown abilities** (the sole
 planned in-round input), multiple enemy types, multiple maps, and any real art or UI theme.
-That's M2 onward — see Build order.
+That's alpha onward — see Build order.
 
 ---
 
@@ -31,12 +32,18 @@ placeholder. Don't wire the classroom art into anything; don't delete it either.
 `player.gd`, `player.tscn` and `test.tscn` are **orphaned by decision**, not by accident.
 They're slated for removal — don't build on them.
 
-Full roadmap: [implementation_plan.md](implementation_plan.md). It predates these decisions,
-so its "User Review Required" section is now answered by the table above.
+**Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
+[final_plan.md](final_plan.md)** — three release stages, 40/40/20 of remaining work. See Build
+order below.
 
-Tower removal + moving: [tower_editing_plan.md](tower_editing_plan.md) — a ready-to-implement
-work order, not yet built. Closes the gap opened by making towers persist (there is currently
-no way to remove or reposition a placed tower).
+[implementation_plan.md](implementation_plan.md) is a **design reference**, not a roadmap — its
+tower and enemy tables are still authoritative for what those things are, but its phase
+numbering is superseded.
+
+Tower removal + moving: [tower_editing_plan.md](tower_editing_plan.md) — **built and verified**
+(commit `6f59e48`). Closed the gap opened by making towers persist. The shipped design lives in
+the Round lifecycle section below; the work order is kept for its rationale and for the two
+findings recorded at the top of it.
 
 UI and HUD work: [ui_plan.md](ui_plan.md). Zero-asset theme system; its UI-0 stage has no
 dependencies and reorders the roadmap slightly (theme first, then each manager with its HUD
@@ -75,8 +82,8 @@ The only expensive-to-retrofit decision in the whole design. Keep these in separ
 | silver, gold | `round_state`, `zombies_to_resolve` |
 | upgrade level per tower type | lives (`base_health.lives`) |
 | unlocked tower types | placed tower instances (`map1.towers_by_cell`) |
-| levels already cleared (gold-once ledger) | current wave (M2 — not built yet) |
-| placement slot count | ability cooldowns (M2 — not built yet) |
+| levels already cleared (gold-once ledger) | current wave (alpha — not built yet) |
+| placement slot count | ability cooldowns (alpha — not built yet) |
 
 This split is implemented, not just planned — `base_health.gd` and `map1.gd`'s round-lifecycle
 fields never write to `PlayerData`, and nothing in `PlayerData`/`TowerStats` reads round state.
@@ -123,8 +130,12 @@ different round, confirmed the silver from the win was still there afterward.
 ```
 zombie game prototype 1/
 ├── CLAUDE.md                ← this file
-├── implementation_plan.md   ← phased roadmap
+├── alpha_plan.md            ← roadmap: itch releases, mechanics-first (40%)
+├── beta_plan.md             ← roadmap: Steam demo, final art (40%)
+├── final_plan.md            ← roadmap: paid release (20%)
+├── implementation_plan.md   ← design reference (tower/enemy tables); phases superseded
 ├── ui_plan.md                ← zero-asset UI plan (theme, HUD, screens)
+├── tower_editing_plan.md    ← shipped work order (removal + moving)
 ├── rules_for_godot_mcp.md   ← MCP toolkit reference
 ├── .mcp.json                ← MCP config (see MCP setup below)
 └── game/                    ← the Godot project (project.godot lives HERE, not at root)
@@ -222,8 +233,8 @@ conflating it with `range` (which governs target *acquisition* only).
 ### Round lifecycle
 
 `map1.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`) and
-is the level controller — there is no separate `wave_manager.gd` yet (that's M2; M1 is
-deliberately single-wave).
+is the level controller — there is no separate `wave_manager.gd` yet (that arrives with
+progressive waves in alpha; the current build is deliberately single-wave).
 
 - **Placement** only succeeds in `PRE_ROUND` (`is_valid_placement` checks `round_state` first)
   and is capped at `PlayerData.slot_count`. `_start_round()` force-cancels any in-progress drag.
@@ -378,87 +389,61 @@ Still open, roughly by value:
 
 ## Build order
 
-Milestones supersede `implementation_plan.md`'s phase ordering, which was written against the
-old buy-towers-with-gold economy.
+**The roadmap is now three release stages**, each publicly shippable:
 
-**M1 — close the economic loop (~8h).** Build this first; it proves the design.
-1. ✅ `PlayerData` autoload — the persistent table above, save/load to `user://`
-2. ✅ `TowerStats` — base stats + upgrade levels → final stats. Silver cost curve:
-   `10 * 1.35^level`. Base/level-0 stats set to match the pre-refactor game exactly
-   (range 200 both towers, archer 10dmg/0.5s, wizard 3dmg/1.0s/AoE-100) — no balance
-   change, just a new source for the same numbers.
-3. ✅ Refactor archer + wizard to pull from it. Verified live: fresh-spawn stats match
-   `TowerStats` exactly, an upgrade bought mid-session applies to the next tower placed
-   (not retroactively — correct, since upgrades only happen between rounds), and a
-   one-shot kill confirmed the full chain (`TowerStats` → archer → arrow → `take_damage`).
-4. ✅ Round lifecycle — `base_health.gd` (round-scoped lives, never persisted) +
-   `map1.gd`'s `RoundState` enum (`PRE_ROUND`/`IN_ROUND`/`ROUND_WON`/`ROUND_LOST`).
-   Placement locks the instant a round starts; `zombie.gd` reports its own fate via
-   `map.on_zombie_killed(silver_reward)` / `map.on_zombie_escaped()` (has_method-guarded,
-   so `clean_area.tscn`'s stripped-down map still works unmodified). A round completes
-   the moment every spawned zombie is resolved, by kill **or** escape — "win" means "you
-   didn't run out of lives," not "zero escapes."
-5. ✅ Lose condition — `lives <= 0` ends the round immediately, force-clears every
-   zombie still alive (`_clear_all_zombies()`), and the spawn loop checks `round_state`
-   between spawns so it stops feeding a resolved round rather than continuing to spawn
-   in the background.
-6. ✅ Crude upgrade screen — `round_ui.gd`, one CanvasLayer covering all three M1 UI
-   needs (status readout, win/lose result + Play Again, and per-track upgrade buttons
-   for both tower types). Explicitly throwaway — UI-0/UI-1 replace every node in it.
+| Stage | Ships to | Graphics | Share of remaining work |
+|---|---|---|---|
+| [alpha_plan.md](alpha_plan.md) | itch.io, across multiple updates | rough / placeholder | 40% |
+| [beta_plan.md](beta_plan.md) | Steam, as a free demo | **final quality** | 40% |
+| [final_plan.md](final_plan.md) | Steam, paid release | final | 20% |
 
-**Verified live**, full loop, real button clicks (not just direct method calls): placed
-towers on a path-adjacent wall cell for genuine combat, won with 6 kills (12 silver, 0
-escapes), replayed the same level for a **second** win to confirm the gold-once ledger
-(paid 10g the first time, correctly 0g and "already cleared" on replay while silver still
-accrued), bought a real upgrade via `UpgradeButton_archer_damage` (silver 12→2, level
-0→1, button label refreshed), then removed all towers and let 25 zombies through
-unopposed to confirm the loss path (lives hit exactly 0, round ended before all 25
-resolved, the remaining survivors were force-cleared, no gold awarded). Also confirmed
-the slot cap (`PlayerData.slot_count`, default 4) actually blocks a 5th placement, and
-that raising `slot_count` un-blocks the identical cell — ruled out a coincidentally
-invalid cell before trusting the result.
+Two things that fall out of that and catch people:
 
-**Two further bugs found in the post-M1 audit** (both invisible to the tests that "verified"
-M1 — recorded here because the class of mistake matters more than the fix):
+- **Art is a beta deliverable, not a final one.** The demo must look finished, so the
+  commission has to be briefed during alpha to arrive in time.
+- **Alpha is a series of releases, not a gate.** Ship early and repeatedly; the first public
+  build only needs progressive waves and the cooldown abilities on top of what already exists.
 
-1. **Nothing ever saved.** `save_data()` had exactly one caller: `reset_progress()`. Every
-   mutator changed memory only, so a normal quit dropped all silver, gold, upgrades and the
-   cleared-levels ledger. The M1 verification missed it by calling `save_data()` manually
-   before reloading — proving serialization worked, never proving the game invoked it.
-   The nastier consequence was economic, not just lost progress: `cleared_levels` was wiped
-   every quit, so **relaunching re-awarded first-clear gold on every level**, turning
-   deliberately-finite gold into an infinite farm. Fixed with the dirty-flag + checkpoint
-   scheme described in the Economy section; verified by quitting and relaunching for real.
-2. **Stale lives on the pre-round HUD.** `start_new_round()` didn't reset `base_health`, so
-   after a loss the readout sat at "Lives: 0/20" until Start was pressed. Gameplay was
-   correct (`_start_round()` resets); only the display lied. Fixed by resetting in
-   `start_new_round()` too and refreshing the label (`base_health.reset()` emits nothing).
+The **horde engine rewrite** (massive battles, replacing the ~250-enemy ceiling documented under
+Performance) lands mid-alpha. It is the largest single item in the roadmap and the biggest
+technical unknown — timebox it and keep the current GDScript horde as a fallback, so worst case
+the game has smaller battles rather than no schedule.
 
-**One real bug found during the M1 build pass itself:** `start_new_round()` (the "Play Again"
-handler) doesn't emit `round_started` — only `_start_round()` (the Start button) does —
-so the result panel stayed on screen after Play Again until the *next* round actually
-began. Fixed by hiding it directly in `round_ui.gd`'s button handler rather than relying
-on the signal. Caught by clicking through the real flow, not by reading the code — if
-you add another "return to pre-round" entry point later, check it hides the result panel
-itself; don't assume `round_started` covers it.
+### Pre-alpha — complete
 
-At the end of M1: place towers → kill → earn silver → buy +damage → replay → feel the
-difference. Single wave, no abilities, no art. **This is done and playable now.** If the
-loop isn't satisfying, that's a design problem to raise before Phase 2 content, not a
-missing-feature problem.
+**M1 — the economic loop.** ✅ Done and verified live.
+`PlayerData` (persistent save), `TowerStats` (base + upgrade → final stats, silver curve
+`10 * 1.35^level`), both towers refactored to resolve from it, the `RoundState` lifecycle with
+`base_health`, the lose condition, and the throwaway `round_ui`. Base/level-0 stats were set to
+match the pre-refactor game exactly, so the refactor introduced no balance change.
 
-**M2 — make the round a game (~7h).** Progressive waves, lives, the three cooldown abilities.
+**Tower removal + moving.** ✅ Done and verified live (`6f59e48`), per
+[tower_editing_plan.md](tower_editing_plan.md).
 
-**M3 — breadth (~6h).** Gold unlocks, level select, a second map.
+Three bugs found in the M1 audit are worth remembering for the class of mistake, not the fix:
 
-**M4 — UI pass (~5h).** Theme + real screens, per [ui_plan.md](ui_plan.md).
+1. **Nothing ever saved.** `save_data()` had exactly one caller — `reset_progress()`. Every
+   mutator changed memory only, so a normal quit dropped all progress. The M1 tests missed it by
+   calling `save_data()` by hand before reloading: they proved serialization worked, never that
+   the game invoked it. Worse, `cleared_levels` was wiped each quit, so relaunching re-awarded
+   first-clear gold — turning deliberately-finite gold into an infinite farm.
+2. **Stale lives on the pre-round HUD.** `start_new_round()` didn't reset `base_health`, so after
+   a loss the readout sat at "Lives: 0/20" until Start was pressed. Gameplay was correct; only
+   the display lied.
+3. **`start_new_round()` doesn't emit `round_started`** (only `_start_round()` does), so the
+   result panel stayed on screen after Play Again. Fixed by hiding it in the handler that
+   changes the state rather than trusting a lifecycle signal to cover every entry point.
+
+The enemy rename (`zombie` → `goblin` under the medieval theme) is approved and scheduled for
+alpha.
+
+`implementation_plan.md` is now a **design reference**, not a roadmap — its phase numbering is
+superseded by the three stages above, but its tower and enemy design tables are still the source
+of truth for what those things are.
 
 Build UI *after* gameplay: a Godot `Theme` cascades project-wide, so retrofitting style is
 cheap. Retrofitting **structure** is not — so make managers signal-driven from day one
 (`silver_changed`, `wave_started`), even when the only listener is a raw `Label`.
-
-The enemy rename (`zombie` → `goblin` etc. under the medieval theme) is approved but not
-started.
 
 ---
 

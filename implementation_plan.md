@@ -1,4 +1,15 @@
-# Medieval Horde Defense — Game Design & Implementation Plan
+# Medieval Horde Defense — Game Design Reference
+
+> [!IMPORTANT]
+> **This is a design reference, not the roadmap.** The roadmap is three release stages:
+> [alpha_plan.md](alpha_plan.md) (itch, mechanics-first, 40%) →
+> [beta_plan.md](beta_plan.md) (Steam demo, final art, 40%) →
+> [final_plan.md](final_plan.md) (paid release, 20%).
+>
+> The **Phase 1–5 numbering below is superseded** and should not be used to sequence work. What
+> remains authoritative here are the **design tables** — the tower set (§2.1), the enemy set
+> (§2.2), and the ability list (§4.2). Those are still the source of truth for *what* those
+> things are; the stage plans decide *when* they get built.
 
 A medieval-themed incremental tower defense game inspired by *Sir, We Have an Orc Problem!*, built in Godot 4.6 (2D).
 
@@ -15,6 +26,7 @@ Your prototype already has solid foundations:
 | Flow-field pathfinding | ✅ Working | BFS/Dijkstra with corner-cut prevention |
 | Swarm zombie AI | ✅ Working (to ~250 enemies) | Flow-field + boids separation + wall sliding; see CLAUDE.md's Performance section for the open perf ceiling above that |
 | Tower building (drag & drop) | ✅ Working | Ghost preview, grid snapping, validity check; now gated to the pre-round phase |
+| Tower removal & moving | ✅ Working | `tower_editing_plan.md`, shipped. Both PRE_ROUND-only and free; no refund because placement costs nothing |
 | Archer tower + homing arrows | ✅ Working | Single-target, stats resolved from `TowerStats` |
 | Wizard tower + AoE fireballs | ✅ Working | Splash damage on impact, stats resolved from `TowerStats` |
 | Player controller | 🗑️ Removed by decision | `player.gd`/`player.tscn`/`test.tscn` orphaned — pure tower defense, no player unit |
