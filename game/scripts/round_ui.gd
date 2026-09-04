@@ -11,6 +11,7 @@ var map: Node2D = null
 var silver_label: Label
 var gold_label: Label
 var lives_label: Label
+var controls_hint_label: Label
 
 var result_panel: Panel
 var result_label: Label
@@ -55,13 +56,27 @@ func _build_status_labels() -> void:
 	lives_label = Label.new()
 	vbox.add_child(lives_label)
 
+	controls_hint_label = Label.new()
+	# Manual break, not autowrap: left unconstrained, a single-line hint runs
+	# out over the play area, and default white text over the white tilemap
+	# walls goes unreadable — so it needs to stay within the ~260px column
+	# every other panel already uses. AUTOWRAP_WORD's own line-break math
+	# disagreed with the final glyph render by a couple pixels right at that
+	# boundary and clipped a word mid-render, for both a long one-line string
+	# and a shorter "should still fit" one. A fixed \n at a clean word
+	# boundary is deterministic and doesn't depend on getting that measurement
+	# exactly right.
+	controls_hint_label.text = "Move: drag\nRemove: right-click"
+	controls_hint_label.custom_minimum_size.x = 260
+	vbox.add_child(controls_hint_label)
+
 
 func _build_upgrade_panel() -> void:
 	upgrade_panel = Panel.new()
 	upgrade_panel.offset_left = 10
-	upgrade_panel.offset_top = 180
+	upgrade_panel.offset_top = 230 # status vbox above wraps to 2 lines now (90-220)
 	upgrade_panel.offset_right = 270
-	upgrade_panel.offset_bottom = 420
+	upgrade_panel.offset_bottom = 470
 	add_child(upgrade_panel)
 
 	var vbox := VBoxContainer.new()
@@ -127,6 +142,13 @@ func _build_result_panel() -> void:
 # --- Signal handlers -----------------------------------------------------
 
 func _on_upgrade_pressed(tower_type: String, track: String) -> void:
+	# Authoritative check, not just the button's disabled flag. A disabled
+	# Button ignores real clicks, but anything that emits `pressed` directly
+	# (test harnesses, future keybinds, a stray signal connection) would sail
+	# past it — and "no upgrades mid-round" is a rule, not a UI hint.
+	if not _upgrades_allowed():
+		return
+
 	# try_upgrade() spends silver and increments atomically; on failure
 	# (insufficient silver) nothing changes and no signal fires, so the
 	# buttons simply stay as they were — correct, no separate error UI
@@ -151,20 +173,37 @@ func _on_life_lost(_remaining: int) -> void:
 	_refresh_status()
 
 
+## Upgrades are a between-rounds activity. Mirrors the same rule placement
+## follows in map1.is_valid_placement().
+func _upgrades_allowed() -> bool:
+	return map.round_state == map.RoundState.PRE_ROUND
+
+
 func _on_round_started() -> void:
 	result_panel.hide()
 	_refresh_status()
+	_refresh_upgrade_buttons() # lock them for the duration of the round
 
 
-func _on_round_ended(won: bool, gold_awarded: int) -> void:
+func _on_round_ended(won: bool, gold_awarded: int, silver_earned: int) -> void:
+	var headline := ""
 	if won and gold_awarded > 0:
-		result_label.text = "Round Won! +%d Gold" % gold_awarded
+		headline = "Round Won!"
 	elif won:
-		result_label.text = "Round Won (already cleared — no gold)"
+		headline = "Round Won (already cleared)"
 	else:
-		result_label.text = "Round Lost"
+		headline = "Round Lost"
+
+	# Always report the haul, including on a loss — silver earned before dying
+	# is kept, and saying so is the point of showing it.
+	var earnings := "Earned: %d silver" % silver_earned
+	if gold_awarded > 0:
+		earnings += "  +  %d gold" % gold_awarded
+
+	result_label.text = "%s\n%s" % [headline, earnings]
 	result_panel.show()
 	_refresh_status()
+	_refresh_upgrade_buttons()
 
 
 func _on_play_again_pressed() -> void:
@@ -177,6 +216,7 @@ func _on_play_again_pressed() -> void:
 	# base_health.reset() doesn't emit life_lost, so nothing else would refresh
 	# the lives label back to full here.
 	_refresh_status()
+	_refresh_upgrade_buttons() # back in PRE_ROUND, so unlock them
 
 
 # --- Refresh ---------------------------------------------------------------
@@ -185,6 +225,7 @@ func _refresh_status() -> void:
 	silver_label.text = "Silver: %d" % PlayerData.silver
 	gold_label.text = "Gold: %d" % PlayerData.gold
 	lives_label.text = "Lives: %d/%d" % [map.base_health.lives, map.base_health.max_lives]
+	controls_hint_label.modulate.a = 1.0 if _upgrades_allowed() else 0.4
 
 
 func _refresh_upgrade_buttons() -> void:
@@ -194,4 +235,6 @@ func _refresh_upgrade_buttons() -> void:
 			var level := PlayerData.get_upgrade_level(tower_type, track)
 			var cost := TowerStats.get_upgrade_cost(tower_type, track)
 			btn.text = "%s Lv%d — %d silver" % [String(track).capitalize(), level, cost]
-			btn.disabled = cost > PlayerData.silver
+			# Locked mid-round: the loadout, stats included, is fixed once a
+			# round starts. Towers only re-read TowerStats at round start.
+			btn.disabled = not _upgrades_allowed() or cost > PlayerData.silver

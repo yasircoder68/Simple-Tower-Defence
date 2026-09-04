@@ -16,21 +16,33 @@ const AOE_RADIUS := 100.0
 var damage: int = 0
 
 func _ready():
-	var stats: Dictionary = TowerStats.get_stats(TOWER_TYPE)
-	damage = stats["damage"]
-
-	if collision_shape and collision_shape.shape is CircleShape2D:
-		collision_shape.shape = collision_shape.shape.duplicate()
-		collision_shape.shape.radius = stats["range"]
+	# See archer.gd — towers persist between rounds, so map1 refreshes this
+	# group's stats at every round start.
+	add_to_group("tower_unit")
+	refresh_stats()
 
 	if timer:
-		timer.wait_time = stats["attack_interval"] * randf_range(0.95, 1.05)
 		timer.stop()
 		# Random initial delay so multiple wizards don't fire on the exact
 		# same frame.
 		await get_tree().create_timer(randf_range(0.0, timer.wait_time)).timeout
 		if is_instance_valid(timer):
 			timer.start()
+
+
+## Re-resolves stats from TowerStats. Safe on a live tower mid-game.
+func refresh_stats() -> void:
+	var stats: Dictionary = TowerStats.get_stats(TOWER_TYPE)
+	damage = stats["damage"]
+
+	if collision_shape and collision_shape.shape is CircleShape2D:
+		# duplicate() so each wizard owns its shape — otherwise resizing one
+		# resizes every wizard sharing the scene's sub-resource.
+		collision_shape.shape = collision_shape.shape.duplicate()
+		collision_shape.shape.radius = stats["range"]
+
+	if timer:
+		timer.wait_time = stats["attack_interval"] * randf_range(0.95, 1.05)
 
 func _on_timer_timeout():
 	var targets = get_overlapping_areas()

@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://bhbxsucuev11y"]
+
+[ext_resource type="Script" path="res://scripts/oil_trap.gd" id="1_fqh4c"]
+[ext_resource type="Texture2D" uid="uid://c5b6alif1chmk" path="res://asserts/1_pixel.png" id="2_ybdte"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_emt86"]
+radius = 60.0
+
+[node name="OilTrap" type="Area2D" unique_id=396965129]
+collision_layer = 2
+script = ExtResource("1_fqh4c")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=126091129]
+modulate = Color(0.8, 0.4, 0.05, 0.85)
+scale = Vector2(120, 120)
+texture = ExtResource("2_ybdte")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=999895226]
+shape = SubResource("CircleShape2D_emt86")
+
+[node name="Timer" type="Timer" parent="." unique_id=830213304]
+wait_time = 0.4
+autostart = true
+
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

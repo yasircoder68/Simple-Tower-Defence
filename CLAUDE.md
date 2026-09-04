@@ -34,6 +34,10 @@ They're slated for removal — don't build on them.
 Full roadmap: [implementation_plan.md](implementation_plan.md). It predates these decisions,
 so its "User Review Required" section is now answered by the table above.
 
+Tower removal + moving: [tower_editing_plan.md](tower_editing_plan.md) — a ready-to-implement
+work order, not yet built. Closes the gap opened by making towers persist (there is currently
+no way to remove or reposition a placed tower).
+
 UI and HUD work: [ui_plan.md](ui_plan.md). Zero-asset theme system; its UI-0 stage has no
 dependencies and reorders the roadmap slightly (theme first, then each manager with its HUD
 piece, rather than deferring all interface work to step 8).
@@ -70,7 +74,7 @@ The only expensive-to-retrofit decision in the whole design. Keep these in separ
 |---|---|
 | silver, gold | `round_state`, `zombies_to_resolve` |
 | upgrade level per tower type | lives (`base_health.lives`) |
-| unlocked tower types | placed tower instances (`map1.placed_towers`) |
+| unlocked tower types | placed tower instances (`map1.towers_by_cell`) |
 | levels already cleared (gold-once ledger) | current wave (M2 — not built yet) |
 | placement slot count | ability cooldowns (M2 — not built yet) |
 
@@ -223,6 +227,18 @@ deliberately single-wave).
 
 - **Placement** only succeeds in `PRE_ROUND` (`is_valid_placement` checks `round_state` first)
   and is capped at `PlayerData.slot_count`. `_start_round()` force-cancels any in-progress drag.
+- **Towers can be removed and moved, both `PRE_ROUND`-only, both free** — see
+  `tower_editing_plan.md` for the full design. `remove_tower(cell)` frees the cell outright; no
+  refund, because placement itself is free and the freed slot *is* the refund. `begin_move()` /
+  `finish_move()` / `cancel_move()` reposition the existing node rather than destroy-and-recreate,
+  so a bug in the restore path can't lose a tower. `towers_by_cell` (Vector2i -> tower node) is
+  the single source of truth for what's placed and where — it replaced an earlier
+  `occupied_cells` + `placed_towers` pair that had to be kept in sync by hand on every op.
+  `finish_move()`/`cancel_move()` are deliberately self-contained (they clear `dragging_type`
+  and hide the ghost themselves) rather than leaving that to each caller — a caller that forgot
+  those two lines would leave the game stuck mid-drag for a real player. `_input()` now branches
+  on LMB-press-over-an-occupied-cell (pick up) and RMB-release-over-an-occupied-cell (remove) in
+  addition to the original press-drag-release placement flow.
 - **Enemies report their own fate.** `zombie.gd`'s `_die()` calls
   `map.on_zombie_killed(silver_reward)`; `_escape()` calls `map.on_zombie_escaped()`. Both are
   `has_method`-guarded on the map side, so `clean_area.tscn`'s stripped-down test harness (no
@@ -234,11 +250,26 @@ deliberately single-wave).
   it does not wait for the remaining spawned-but-unresolved zombies to individually escape or
   die. Those get force-cleared via `_clear_all_zombies()`. `spawn_zombies()`'s loop also checks
   `round_state` between spawns, so it stops feeding a round that already ended.
-- **`start_new_round()`** (the "Play Again" flow) clears `placed_towers` and `occupied_cells`
-  and returns to `PRE_ROUND` — it does **not** emit `round_started` (only `_start_round()`,
-  the Start button, does that). `round_ui.gd` learned this the hard way: hide UI state
-  reactively in the handler that changes it, don't assume a lifecycle signal covers every
-  entry point back to the same state.
+- **`start_new_round()`** (the "Play Again" flow) returns to `PRE_ROUND` **keeping the tower
+  layout** — a layout you built survives replaying the level, and you can keep adding to it up
+  to `slot_count`. Only a map change resets placement, which happens for free because loading
+  a different level scene destroys those nodes. If levels ever swap in-place without a scene
+  reload, call `_clear_placed_towers()` at that point. Note this also means towers do **not**
+  survive quitting the app — they live in the scene, not in `PlayerData`.
+- **Persisted towers must be re-stat'd.** Towers resolve from `TowerStats` at spawn, so a
+  tower placed before an upgrade would keep stale numbers now that it survives the round.
+  `_start_round()` calls `get_tree().call_group("tower_unit", "refresh_stats")` before the
+  first spawn; `archer.gd`/`wizard.gd` both join `tower_unit` and expose `refresh_stats()`.
+  **Any new tower script must do both**, or it silently ignores upgrades.
+- **`start_new_round()` does not emit `round_started`** (only `_start_round()`, the Start
+  button, does). `round_ui.gd` learned this the hard way: hide UI state reactively in the
+  handler that changes it, don't assume a lifecycle signal covers every entry point back to
+  the same state.
+- **Upgrades are locked outside `PRE_ROUND`**, enforced in two places: the buttons' `disabled`
+  flag, and an authoritative guard in `round_ui._on_upgrade_pressed()`. The guard is not
+  redundant — a disabled Button still runs its `pressed` handler if something emits the signal
+  directly (which `input_simulate`'s `click_node` does, and which silently defeated the first
+  version of this test).
 - **Gold-once is enforced by `PlayerData.award_level_gold`**, not by `map1` — `_end_round(true)`
   calls it and only forwards the *actual* amount paid (0 on a replay) through `round_ended`'s
   `gold_awarded` param. Never infer "gold was paid" from `won == true` alone.
@@ -314,6 +345,14 @@ Still open, roughly by value:
 
 1. `arrow.gd:12` — `queue_free()` with no `return`; keeps attaching a timer to a freed node.
    **One-word fix.** (`fire.gd` already does this correctly — copy it.)
+1b. **Freed-node access through the spatial grid — FIXED, but read this before touching the
+   grid.** `zombie_grid_nodes` caches node references at rebuild time; splash damage reads
+   them later in the same frame, by which point other kills may have freed them. This crashed
+   in real play (`get_zombies_in_radius: Invalid access ... 'previously freed'`, two wizards on
+   a dense cluster). Guarded now in three places: skip queued/invalid on grid rebuild, and
+   `is_instance_valid()` in both `get_zombies_in_radius()` and `fire.gd`'s damage loop. Any new
+   consumer of `zombie_grid_nodes` needs the same guard — the positions array (`zombie_grid`)
+   is safe, only the node-reference one is hazardous.
 2. Flow field charges `cost + 1` for diagonals → Chebyshev distances, so diagonal routes are
    under-priced and paths skew.
 3. `is_wall()` tests only the enemy's centre point, so bodies clip wall corners.
@@ -440,3 +479,23 @@ started.
   directly-addressed node instead), and can't call `load()`/`preload()`. To mutate state that
   needs a loop, either issue one call per iteration or lean on a Dictionary/Array method that
   does the iteration internally (e.g. `dict.merge({...}, true)` beats a loop of `dict[k] = v`).
+- **`input_simulate`'s `click_node` emits `pressed` directly and bypasses a Button's `disabled`
+  flag** — a disabled button still runs its handler under this tool. Never trust a widget's
+  disabled state as the only guard; verify state after a forced action instead, and put an
+  authoritative check in the handler itself for anything that's a real rule (see
+  `round_ui._on_upgrade_pressed()`).
+- **`get_global_mouse_position()` is not reliably driven by `input_simulate`'s `mouse_motion` /
+  `mouse_button` `position`/`world_position` fields in this environment** — repeated attempts to
+  calibrate it (linear regression on known screen->world pairs, the `click` composite) produced
+  inconsistent, sometimes physically nonsensical results (negative scale, mismatched axes). It
+  appeared to read some leftover value unrelated to the injected coordinate. This means **you
+  cannot reliably drive a click-and-drag onto a *specific* world cell via MCP input simulation**
+  — don't spend time calibrating it further; it burned a real amount of effort during the tower
+  move/remove work before being identified as a tooling limitation, not a code defect. What
+  *does* work: `click_node` for Buttons (exact node path, no coordinates), and driving game-state
+  transitions directly via `execute_code` calling the same functions `_input()` would call
+  (`begin_move()`, `place_tower()`, etc.) — this exercises the real logic, just not the input
+  routing that dispatches to it. If you need to verify `_input()`'s own branching, a coordinate
+  that only needs to land "somewhere invalid" (e.g. far off the tilemap) is more likely to
+  produce a meaningful result than one that needs to land on a specific valid cell — but confirm
+  what actually happened via state, not just an event's `dispatched: true`.

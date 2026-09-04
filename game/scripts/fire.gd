@@ -38,6 +38,11 @@ func _on_area_entered(area):
 		# map's spatial grid so this stays O(nearby) instead of scanning every
 		# zombie in the scene on every impact.
 		for z in _splash_candidates():
+			# The fallback path (get_nodes_in_group) isn't validity-filtered, and
+			# nothing guarantees a candidate survives an earlier iteration of
+			# this same loop.
+			if not is_instance_valid(z):
+				continue
 			if z.global_position.distance_to(global_position) <= aoe_radius:
 				if z.has_method("take_damage"):
 					z.take_damage(damage)
