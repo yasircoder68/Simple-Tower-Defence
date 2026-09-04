@@ -16,6 +16,8 @@ signal cooldown_changed(remaining: float, total: float)
 ## a1_plan.md's boulder table before tuning them.
 const BOULDER_COOLDOWN := 3.0
 
+const BOULDER_SCENE := preload("res://entities/abilities/boulder/boulder.tscn")
+
 var map: Node2D = null
 
 ## Explicit off-switch, forced false by level_controller._end_round(). This is
@@ -82,12 +84,21 @@ func can_cast() -> bool:
 ## get_global_mouse_position() is not reliably driven by input_simulate in this
 ## environment (CLAUDE.md, Gotchas) — calling this directly via execute_code is
 ## the only way this path can be verified.
-func cast_boulder(_world_pos: Vector2) -> bool:
+func cast_boulder(world_pos: Vector2) -> bool:
 	if not can_cast():
 		return false
 
-	# B-2 spawns the boulder entity here. The cooldown starts at cast, not at
-	# impact — the ~0.5s arc is travel time the player has already committed to.
+	var boulder := BOULDER_SCENE.instantiate()
+	boulder.map = map
+	# Parented to the map, not to this manager, so it shares the world
+	# transform every other entity uses — and so global_position lands where
+	# the caller meant. Position is set after add_child: before the node is in
+	# the tree, global_position has no parent transform to resolve against.
+	map.add_child(boulder)
+	boulder.global_position = world_pos
+
+	# The cooldown starts at cast, not at impact — the arc is travel time the
+	# player has already committed to.
 	cooldown_remaining = BOULDER_COOLDOWN
 	cooldown_changed.emit(cooldown_remaining, BOULDER_COOLDOWN)
 	return true
