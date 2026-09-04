@@ -4,7 +4,7 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: playable core loop (M1 + tower editing + `783b9d2` restructure).** Pathfinding, swarm AI, tower
+**Status: playable core loop (M1 + tower editing + `dd49e82` restructure).** Pathfinding, swarm AI, tower
 building/removal/moving, the silver/gold economy, permanent upgrades, round win/lose and
 `user://` persistence all work — you can place towers, rearrange them, kill for silver, clear a
 level for gold, buy upgrades, and replay.
@@ -24,7 +24,7 @@ That's alpha onward — see Build order.
 | Meta-progression | **Yes** — permanent upgrades, `user://` save. Currencies are silver + gold; there is no "souls". |
 | In-round play | **Cooldown abilities.** Towers are pre-placed and auto-fire; abilities are the only live input. |
 
-**The classroom / school-horror art has been deleted** (`783b9d2`) — ~148 PNGs, 106MB, wrong
+**The classroom / school-horror art has been deleted** (`dd49e82`) — ~148 PNGs, 106MB, wrong
 theme. It is still in git history if ever needed. Every sprite in the running game is a
 100–300 byte placeholder awaiting the commissioned medieval art (a beta deliverable — see
 `beta_plan.md`).
@@ -41,7 +41,7 @@ tower and enemy tables are still authoritative for what those things are, but it
 numbering is superseded.
 
 Tower removal + moving: [tower_editing_plan.md](tower_editing_plan.md) — **built and verified**
-(commit `6f59e48`). Closed the gap opened by making towers persist. The shipped design lives in
+(commit `a22ca4a`). Closed the gap opened by making towers persist. The shipped design lives in
 the Round lifecycle section below; the work order is kept for its rationale and for the two
 findings recorded at the top of it.
 
@@ -153,7 +153,7 @@ zombie game prototype 1/
     └── addons/godot_mcp_toolkit/   ← 277 files, vendored; not your code
 ```
 
-**Colocation is the convention** (restructured `783b9d2`). A new tower/enemy gets its own folder
+**Colocation is the convention** (restructured `dd49e82`). A new tower/enemy gets its own folder
 under `entities/` holding its scene, script and art together — don't scatter them into parallel
 `scenes/`+`scripts/` trees. `assets/` is for genuinely shared things only. The artist brief is
 literally "replace the PNG in each entity folder."
@@ -357,6 +357,20 @@ Do not claim the perf problem is fixed without a measured 600-enemy screenshot.
 
 ---
 
+## Repo history — rewritten 2026-09-04
+
+`git filter-repo` purged the shelved asset packs and old `.docx` files from **all** history:
+**`.git` went 107 MB → 875 KB** (122x). Force-pushed to `origin`; all 7 branches survived.
+
+**Every commit hash before 2026-09-04 changed.** Any hash cited in an older document, commit
+message or chat log is dead — map by commit *message*, not by hash. A pre-rewrite clone is
+incompatible and must be re-cloned.
+
+A full pre-purge backup sits at `C:\disk\godot\projects\zombie-game-BACKUP-prepurge`
+(109 MB). Safe to delete once you're satisfied nothing was lost.
+
+---
+
 ## Known issues
 
 Fixed and verified: collision layers, the `res://` export crash, per-frame disk I/O, the
@@ -381,17 +395,19 @@ Still open, roughly by value:
 3. `is_wall()` tests only the enemy's centre point, so bodies clip wall corners.
 4. `place_tower` marks exactly one cell occupied, but the wizard sprite is 9× scale — towers
    visually overlap.
-5. `TileMap` is deprecated as of Godot 4.3; this project targets 4.6. Migrate to `TileMapLayer`.
+5. `TileMap` is deprecated as of Godot 4.3 (project targets 4.6). **Migration is deliberately
+   deferred — do not "helpfully" do it.** Deprecated is not removed; it works fine in 4.6. The
+   horde engine rewrite in alpha tears through the same pathfinding code (`get_used_cells(0)`,
+   `local_to_map`, `map_to_local`, `get_used_rect`), so migrating separately destabilises that
+   code twice. **Bundle it with the horde rewrite, or do it immediately before building levels
+   2–15 — whichever comes first.** Note the `0` in `get_used_cells(0)` is a layer index that
+   ceases to exist under `TileMapLayer`, where the node *is* the layer.
 6. Enemy `z_index = 10` draws enemies over towers.
 7. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
-8. `.git` is ~107 MB even though the working tree is 2.3 MB — the deleted asset packs are still
-   in history. A commit can't shrink this; only a history rewrite can. **Deliberately deferred**
-   — it costs nothing day-to-day and only matters the day someone else first clones the repo.
-   Commands are in the session notes; it drops `origin` and needs a force-push of all branches.
-9. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
+8. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
    `archer_tower.gd` repositions the archer after `add_child`. Harmless, cosmetic.
 
-**Fixed in the `783b9d2` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
+**Fixed in the `dd49e82` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
 `asserts/` typo (now `assets/`), and the stale `damage`/`wizard_radius` scene overrides.
 
 ---
@@ -426,7 +442,7 @@ the game has smaller battles rather than no schedule.
 `base_health`, the lose condition, and the throwaway `round_ui`. Base/level-0 stats were set to
 match the pre-refactor game exactly, so the refactor introduced no balance change.
 
-**Tower removal + moving.** ✅ Done and verified live (`6f59e48`), per
+**Tower removal + moving.** ✅ Done and verified live (`a22ca4a`), per
 [tower_editing_plan.md](tower_editing_plan.md).
 
 Three bugs found in the M1 audit are worth remembering for the class of mistake, not the fix:

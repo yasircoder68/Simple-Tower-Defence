@@ -55,6 +55,12 @@ This is the largest single item in the entire roadmap and the biggest technical 
 project. It is also the best update headline alpha has — "the hordes got massive" is something
 players notice immediately.
 
+**Bundle the TileMapLayer migration into this.** Godot deprecated `TileMap` in 4.3 and the
+project is on 4.6. It still works, so it isn't urgent on its own — but the rewrite touches the
+same pathfinding code (cell lookups, coordinate conversion, used-rect), and doing them
+separately destabilises that code twice. Decided deliberately: don't migrate before this point,
+and don't leave it past the first batch of new levels.
+
 **Two things to hold onto:**
 
 - **Timebox it, and keep the current engine as a fallback.** If the rewrite proves too
