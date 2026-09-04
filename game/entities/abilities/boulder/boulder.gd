@@ -12,7 +12,7 @@ extends Node2D
 
 ## Not in TowerStats: these are not one of the three upgrade tracks the player
 ## buys, the same reasoning that keeps wizard.gd's AOE_RADIUS local to that
-## script. Tuned at a1_plan.md's step 10.
+## script. Tuned at a1_plan.md's step 11.
 const RADIUS := 70.0
 const DAMAGE := 15
 

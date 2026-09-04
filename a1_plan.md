@@ -5,9 +5,10 @@
 rather than watched: the round doesn't escalate, and there is no live input.
 
 **Scope:** two new managers (`wave_manager.gd`, `ability_manager.gd`), one new entity folder
-(`entities/abilities/boulder/`), plus edits to `level_controller.gd`, `round_ui.gd`, `arrow.gd`
-and `zombie.tscn`. No new autoloads, no save-format change, no change to `PlayerData` or
-`TowerStats` — A1 adds nothing persistent.
+(`entities/abilities/boulder/`), two new UI folders (`ui/aim_marker/`, `ui/ability_bar/`), plus
+edits to `level_controller.gd`, `round_ui.gd`, `arrow.gd` and both tower `.tscn`s. No new
+autoloads, no save-format change, no change to `PlayerData` or `TowerStats` — A1 adds nothing
+persistent.
 
 Read [CLAUDE.md](CLAUDE.md) first — especially *Round lifecycle*, *Performance*, *Known issues*
 and *Gotchas*. This document assumes that context and only covers what's new.
@@ -40,6 +41,10 @@ Rain of Arrows, Divine Smite and Dragon Fire move to A2. This keeps the first re
 (alpha_plan: "the first release should go out **soon**") and resolves a design problem for free —
 Divine Smite's "huge single-target damage" is meaningless while every enemy has 10 HP. In A2 the
 Ogre (80 HP) and Troll (1000 HP) exist and it finally has a target.
+
+B-4 builds the registry and selection bar that *hold* multiple abilities, but A1 still ships one
+entry in it. Building the system with one ability to migrate is deliberately cheaper than
+building it with four — the decision above is about content, not architecture.
 
 **2. Enemy HP and speed are constant across waves. Count and spawn interval are the only
 escalation levers.**
@@ -125,6 +130,8 @@ upgrades something to push against once A2's tougher enemies arrive.
 **No input conflict with tower dragging, and it costs nothing to avoid.** `_input()`'s entire
 LMB branch returns early unless `round_state == PRE_ROUND`; the boulder is `IN_ROUND` only. The
 two meanings of "hold left mouse button" never coexist, so neither needs to know about the other.
+(From B-4 onward the ability side routes through `_unhandled_input()` instead, which separates
+them a second time — see B-4 for why that move is required.)
 
 **Silver is automatic.** Boulder kills route through `zombie._die()` → `map.on_zombie_killed()`
 like any other kill. Nothing to add.
@@ -159,7 +166,8 @@ track has to reopen the 554-line file they would otherwise contend over.**
 
 Precisely:
 
-- **Track B never touches `level_controller.gd` at all.**
+- **Track B touches `level_controller.gd` exactly once**, in B-4, to move the ability forward from
+  `_input()` to `_unhandled_input()`. B-1 through B-3 touch it not at all.
 - **Track W touches it exactly once**, in a three-line handover commit at the very end.
 
 That is weaker than "only Step 0 touches it", and it is what actually holds. The input routing and
@@ -306,9 +314,60 @@ Use a separate small aim marker rather than the existing tower `ghost`, which ca
 tower-specific `set_tower()` / `update_validity()`.
 
 The routing split matters for verification, not just tidiness: `get_global_mouse_position()` is not
-reliably driven by `input_simulate` in this environment (CLAUDE.md, Gotchas), so calling
-`cast_boulder(world_pos)` directly via `execute_code` is the only way to verify this path. Same
-workaround that got tower move/remove verified.
+reliably driven by `input_simulate` in this environment (CLAUDE.md, Gotchas), so calling the cast
+directly via `execute_code` is the only way to verify this path. Same workaround that got tower
+move/remove verified.
+
+**B-4 · Ability registry and selection bar.**
+Generalises one hardcoded ability into a system, and adds the bottom-centre bar that selects
+between them and shows their cooldowns. Done now rather than in A2 because migrating **one**
+ability is the cheapest this will ever be — the same "it gets more expensive the longer it waits"
+argument alpha_plan makes for the A3 horde rewrite, in miniature.
+
+*Data model.* An id-keyed registry replaces the boulder-specific API:
+
+```
+ABILITIES = { "boulder": { display_name, key: 1, cooldown: 3.0, scene, script } }
+```
+
+- `cooldown_remaining` becomes a dict keyed by ability id — boulder's 3s and Dragon Fire's 90s
+  cannot share one float.
+- `cast_boulder(pos)` becomes `cast(ability_id, pos)`, with `cast_selected(pos)` as the entry
+  point input calls.
+- `selected_ability` lives on the manager and resets each round. It is a live preference and must
+  not go near `PlayerData` — see the state boundary table.
+- Selecting a cooling ability is allowed; only casting is gated. Same reasoning as aiming while
+  cooling.
+
+*`aim_marker` stops being boulder-specific.* It currently preloads `boulder.gd` and reads
+`BoulderScript.RADIUS`. It must read the **selected** ability's radius instead — Divine Smite's
+blast is nothing like Rain of Arrows'. Radius stays on each payload script (the payload owns its
+own blast); the registry hands out which script to ask. This is the strongest single argument for
+doing B-4 now: the marker is hardcoded to one ability today, and that is exactly the kind of thing
+that stays invisible until it is four places instead of one.
+
+*The bug this walks into, and the one `level_controller.gd` edit.*
+`_input()` runs **before** GUI handling, so a click on the ability bar reaches `ability_manager`
+first — starting an aim, and throwing on release at whatever world position sits behind the bar.
+Every click on an icon would fire. Move the forward from `_input()` to `_unhandled_input()`:
+Controls consume clicks that land on them, so `_unhandled_input` only ever sees clicks on the game
+world.
+
+Note the tower drag **already has this bug** and it is merely benign — clicking `build_sidebar`
+does reach `_input()`, but resolves to a cell under the sidebar where nothing is placed. For an
+ability bar it would not be benign.
+
+*The bar is its own scene: `ui/ability_bar/`, NOT part of `round_ui.gd`.*
+`round_ui` is explicitly throwaway and is deleted wholesale at UI-0/UI-1; an ability bar is a
+permanent element (ui_plan.md's UI-1), so building it inside the throwaway means building it
+twice. `build_sidebar` is the precedent — separate scene, instantiated into the map's
+`CanvasLayer`, restyleable by a later theme pass without touching structure.
+
+Zero-asset per ui_plan: a `Panel` per slot, a `Label` for the number key, a fill rect for cooldown,
+dimmed while cooling. A vertical fill is enough for alpha — skip the radial sweep.
+
+*The case worth proving:* **click a bar slot and confirm no boulder is thrown.** That is the
+`_unhandled_input` fix, and it is the whole reason this step is more than cosmetic.
 
 ### UI (needs both tracks)
 
@@ -316,7 +375,10 @@ Bolt onto `round_ui.gd`. It is explicitly throwaway and A1's headline is mechani
 budgets interface work as 3% spread across the whole alpha run rather than front-loaded into the
 first release. Do UI-0's theme before A2, not before A1.
 
-Additions: wave counter (`Wave 3/5`), breather countdown with a Skip button, boulder cooldown bar.
+Additions: wave counter (`Wave 3/5`), breather countdown with a Skip button.
+
+**The cooldown display is no longer here** — it moved into B-4's ability bar, which is a separate
+permanent scene rather than part of throwaway `round_ui`. This step is wave-facing readouts only.
 
 Give every new button an explicit `.name`, as `round_ui` already does — anonymous procedurally
 created `Control`s get auto-generated names like `@Button@42` that are not guessable in advance,
@@ -356,23 +418,24 @@ Three harness details confirmed while landing Step 0, all of which cost a round 
 
 ## Sequencing — do these one at a time
 
-Eleven commits, in this order. **Every one of them leaves the game launchable and playable**, which
+Twelve commits, in this order. **Every one of them leaves the game launchable and playable**, which
 is the property the order is built around: there is no point in the run where the build is broken
 waiting for the next commit to rescue it.
 
 | # | Commit | Files | Done when |
 |---|---|---|---|
-| 0 | **Seam** — both manager stubs, all five wiring points, plus the `arrow.gd` and `z_index` fixes | `level_controller.gd`, `arrow.gd`, `zombie.tscn`, 2 new stubs | Game plays exactly as before. Nothing observable changed — that is the point |
-| 1 | **B-1** cooldown + `cast_boulder()` API | `ability_manager.gd` | `can_cast()` gates on a 3s timer; `cooldown_changed` fires |
-| 2 | **B-2** boulder entity + damage loop | `entities/abilities/boulder/` | `cast_boulder(pos)` via `execute_code` kills a cluster, no crash |
-| 3 | **B-3** aim marker + `handle_input()` | `ability_manager.gd` | Hold-aim-release works by hand in a live round |
-| 4 | **W-1** phase machine + Timer spawning | `wave_manager.gd` | `begin()` spawns wave 1 on a `zombie_count = 0` level |
-| 5 | **W-2** counter ownership | `wave_manager.gd` | Five waves run start to finish; no early victory |
-| 6 | **W-3** breather phase | `wave_manager.gd` | Countdown between waves; placement still locked |
-| 7 | **W-4** abort + reset | `wave_manager.gd` | Loss mid-wave stops the spawner dead |
-| 8 | **W-5 handover** | `level_controller.gd` | Start button runs the wave machine; `spawn_zombies()` gone |
-| 9 | **UI** wave counter, breather countdown + skip, cooldown bar | `round_ui.gd` | All three read correctly through a full round |
-| 10 | **Tune + verify** | numbers only | The two proof cases below pass |
+| 0 | **Seam** — both manager stubs, all five wiring points, plus the `arrow.gd` and `z_index` fixes | `level_controller.gd`, `arrow.gd`, tower `.tscn`s, 2 new stubs | Game plays exactly as before. Nothing observable changed — that is the point |
+| 1 | **B-1** cooldown + cast gate | `ability_manager.gd` | `can_cast()` gates on a 3s timer; refuses outside a round |
+| 2 | **B-2** boulder entity + damage loop | `entities/abilities/boulder/` | Cast via `execute_code` kills a cluster, no `previously freed` crash |
+| 3 | **B-3** aim marker + `handle_input()` | `ui/aim_marker/`, `ability_manager.gd` | Hold-aim-release throws where aimed; RMB cancels without casting |
+| 4 | **B-4** ability registry + selection bar | `ability_manager.gd`, `ui/ability_bar/`, `ui/aim_marker/`, `level_controller.gd` | Number key and click both select; **clicking a slot throws nothing** |
+| 5 | **W-1** phase machine + Timer spawning | `wave_manager.gd` | `begin()` spawns wave 1 on a `zombie_count = 0` level |
+| 6 | **W-2** counter ownership | `wave_manager.gd` | Five waves run start to finish; no early victory |
+| 7 | **W-3** breather phase | `wave_manager.gd` | Countdown between waves; placement still locked |
+| 8 | **W-4** abort + reset | `wave_manager.gd` | Loss mid-wave stops the spawner dead |
+| 9 | **W-5 handover** | `level_controller.gd` | Start button runs the wave machine; `spawn_zombies()` gone |
+| 10 | **UI** wave counter, breather countdown + skip | `round_ui.gd` | Both read correctly through a full round |
+| 11 | **Tune + verify** | numbers only | The two proof cases below pass |
 
 **Why the boulder comes first**, even though waves are the larger item: it is smaller,
 self-contained, and testable against the *existing* flat 50-enemy round, which Step 0 deliberately
@@ -380,13 +443,14 @@ leaves intact. It de-risks the ability-manager and MCP-verification pattern whil
 still simple, and it lands "something to do during a round" as a playable thing before any
 structural work starts. Reversing the order costs you that test bed.
 
-**Steps 4–7 are where the two live spawners briefly coexist** — the old `spawn_zombies()` path and
+**Steps 5–8 are where the two live spawners briefly coexist** — the old `spawn_zombies()` path and
 the new machine. They never actually run together, because Track W development zeroes
-`zombie_count` (see Track W's intro) and the handover at step 8 removes the old path outright.
+`zombie_count` (see Track W's intro) and the handover at step 9 removes the old path outright.
 
-**Two people instead of one:** step 0 is a blocking prerequisite for both. Then steps 1–3 and 4–7
-run fully in parallel — Track B touches no file Track W touches. Step 8 is Track W's to land, and
-steps 9–10 join the two back up.
+**Two people instead of one:** step 0 is a blocking prerequisite for both. Then steps 1–4 and 5–8
+run fully in parallel — the only file both tracks touch is `level_controller.gd`, and they touch
+it in different places (B-4 moves the input forward; W-5 swaps the spawner), so the two edits
+merge cleanly. Step 9 is Track W's to land, and steps 10–11 join the two back up.
 
 ---
 
@@ -413,7 +477,7 @@ Constant-across-waves and constant-at-*10* are separate decisions. Two ways out:
   *(Recommended.)*
 - **Accept it**, and let A2's Ogre and Troll fix it automatically.
 
-**Still open — decide at the tuning pass (step 10).**
+**Still open — decide at the tuning pass (step 11).**
 
 **3. Silver per round roughly quintuples, and that is fine.**
 ~255 kills instead of 50 means ~510 silver per round instead of ~100. But the round is also

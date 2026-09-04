@@ -321,18 +321,29 @@ func _on_start_drag(tower_type: String):
 ##   RMB release, dragging                     -> cancel a move (or just drop a sidebar drag)
 ##   RMB release, not dragging, cell occupied  -> remove
 ## All of it is PRE_ROUND-only, gated once at the top.
-func _input(event):
-	# Abilities are the only live input a round has, and they are IN_ROUND
-	# only — so this branch and the PRE_ROUND tower-editing branch below can
-	# never both be active. That separation is what lets "hold LMB" mean two
-	# entirely different things without either side knowing about the other.
-	#
-	# This forwards and nothing else: all ability logic lives in
-	# ability_manager, which is why Track B never has to reopen this file.
-	if round_state == RoundState.IN_ROUND:
-		ability_manager.handle_input(event)
+## Abilities are the only live input a round has, and they are IN_ROUND only —
+## so this and the PRE_ROUND tower-editing branch in _input() below can never
+## both be active. That separation is what lets "hold LMB" mean two entirely
+## different things without either side knowing about the other.
+##
+## _unhandled_input, NOT _input, and that distinction is load-bearing: _input()
+## runs BEFORE GUI handling, so a click on the ability bar would reach the
+## manager first, start an aim, and throw on release at whatever world position
+## sits behind the bar. Controls consume clicks that land on them, so unhandled
+## input only ever sees clicks on the game world.
+##
+## The tower drag below has the same hazard and gets away with it: clicking
+## build_sidebar does reach _input(), but resolves to a cell under the sidebar
+## where nothing is placed, so nothing happens. Benign there, not here.
+##
+## Forwards and nothing else — all ability logic lives in ability_manager.
+func _unhandled_input(event):
+	if round_state != RoundState.IN_ROUND:
 		return
+	ability_manager.handle_input(event)
 
+
+func _input(event):
 	if round_state != RoundState.PRE_ROUND:
 		return
 
