@@ -4,14 +4,14 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: playable core loop (M1 + tower editing + `dd49e82` restructure).** Pathfinding, swarm AI, tower
+**Status: A1 complete — the first itch.io release is built.** Pathfinding, swarm AI, tower
 building/removal/moving, the silver/gold economy, permanent upgrades, round win/lose and
-`user://` persistence all work — you can place towers, rearrange them, kill for silver, clear a
-level for gold, buy upgrades, and replay.
+`user://` persistence all work. On top of that, **progressive waves** and the **boulder
+ability** now make a round something you play rather than watch: five escalating waves with a
+breather between them, and a hold-to-aim ability on a 3s cooldown that is the only live input.
 
-Not yet built: **progressive waves** (single wave only), **cooldown abilities** (the sole
-planned in-round input), multiple enemy types, multiple maps, and any real art or UI theme.
-That's alpha onward — see Build order.
+Not yet built: multiple enemy types, multiple maps, the horde engine rewrite, gold sinks, and
+any real art or UI theme. That's A2 onward — see Build order.
 
 ---
 
@@ -77,13 +77,13 @@ Two consequences that drive tuning:
 
 The only expensive-to-retrofit decision in the whole design. Keep these in separate containers:
 
-| Persistent (`user://` save, `PlayerData`) | Round-scoped (discarded, `level_controller`/`base_health`) |
+| Persistent (`user://` save, `PlayerData`) | Round-scoped (discarded, `level_controller`/`base_health`/managers) |
 |---|---|
 | silver, gold | `round_state`, `zombies_to_resolve` |
 | upgrade level per tower type | lives (`base_health.lives`) |
 | unlocked tower types | placed tower instances (`towers_by_cell`) |
-| levels already cleared (gold-once ledger) | current wave (alpha — not built yet) |
-| placement slot count | ability cooldowns (alpha — not built yet) |
+| levels already cleared (gold-once ledger) | current wave + phase (`wave_manager`) |
+| placement slot count | ability cooldowns + selection (`ability_manager`) |
 
 This split is implemented, not just planned — `base_health.gd` and `level_controller.gd`'s round-lifecycle
 fields never write to `PlayerData`, and nothing in `PlayerData`/`TowerStats` reads round state.
@@ -143,11 +143,14 @@ zombie game prototype 1/
     ├── entities/            ← COLOCATED: each thing owns a folder with its scene+script+art
     │   ├── towers/archer/       archer_tower.tscn/.gd, archer.tscn/.gd, archer*.png
     │   ├── towers/wizard/       wizard_tower.tscn, wizard.tscn/.gd, wizard*.png
-    │   ├── enemies/zombie/      zombie.tscn/.gd        (→ goblin/ at the alpha rename)
+    │   ├── enemies/zombie/      zombie.tscn/.gd        (→ goblin/ at the A2 rename)
+    │   ├── abilities/boulder/   boulder.tscn/.gd       (A1; no PNG yet — see Known issues)
     │   └── projectiles/         arrow/, fire/
     ├── levels/              ← level_01.tscn + tilesets/my_tiles.tscn
-    ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd
-    ├── ui/                  ← build_sidebar/, ghost_tower/, round_ui.gd, fps_counter.gd
+    ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd,
+    │                          wave_manager.gd, ability_manager.gd
+    ├── ui/                  ← build_sidebar/, ghost_tower/, aim_marker/, ability_bar/,
+    │                          round_ui.gd, fps_counter.gd
     ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
     ├── testbed/             ← clean_area.tscn/.gd (quarantined harness)
     └── addons/godot_mcp_toolkit/   ← 277 files, vendored; not your code
@@ -242,11 +245,71 @@ part of `TowerStats` — it's not one of the three upgrade tracks the player buy
 size becomes upgradeable later, add it to `TowerStats` as a fourth track rather than
 conflating it with `range` (which governs target *acquisition* only).
 
+### Waves (A1)
+
+`systems/wave_manager.gd`, a round-scoped child of `level_controller`. Escalation is **density
+only** — `WAVE_TABLE` carries count and spawn interval per wave; enemy HP and speed are constant
+across waves by decision, so the manager never touches the enemy scene beyond instantiate and
+position.
+
+- **Its own phase enum** (`IDLE → SPAWNING → CLEARING → BREATHER → DONE`) is private to the
+  manager. `RoundState` deliberately gained no `BETWEEN_WAVES` value — the round stays `IN_ROUND`
+  for its whole duration, so `is_valid_placement()`, `_upgrades_allowed()`, `_input()`'s tower
+  branch, `remove_tower()` and `begin_move()` all keep working untouched. Placement and upgrades
+  stay locked through breathers **for free**.
+- **Timer-driven, never a coroutine.** The old `spawn_zombies()` awaited per zombie, producing a
+  coroutine that outlived `_clear_all_zombies()` and could wake into a *fresh* round and keep
+  spawning. A Timer has nothing to leak, stops on demand, and exposes its state to
+  `runtime_get_script_vars`. **Don't reintroduce an await loop here.**
+- **Waves are strictly sequential** — N+1 starts only after N fully resolves. Two reasons: it caps
+  concurrent enemies at one wave's size (keeping under the perf ceiling), and it means a dying
+  enemy unambiguously belongs to the current wave, so one counter suffices. Overlapping waves
+  would need a wave tag on every enemy and per-wave decrements — a real deferred cost, not a
+  dodged one.
+- **How the round ends without the manager reaching into `_end_round()`:** `_start_wave()` tops up
+  `map.zombies_to_resolve` with the new wave's count, and `_begin_breather()` pre-reserves the
+  *next* wave's count before the gap opens. On the last wave nothing tops it up, so it reaches 0
+  naturally and `level_controller`'s existing `_check_round_complete()` ends the round won —
+  through the exact M1 path (gold-once ledger, save flush, `round_ended`). The two counters
+  decrement on the same events and the wave-boundary overwrite re-syncs them, so they cannot
+  drift.
+- **Miss the pre-reservation and you get "victory after wave 1"** — `_check_round_complete()` runs
+  on the very resolution that clears a wave, and would see a counter of 0 during the breather.
+  This bit twice during implementation; it is the failure mode to watch for here.
+- Level authoring is two exports: `wave_count` (rows used) and `difficulty_scale` (multiplier on
+  count only — spawn interval is pacing, not difficulty).
+
+### Abilities (A1)
+
+`systems/ability_manager.gd`, also round-scoped. A1 ships **one** entry in its `ABILITIES`
+registry — the boulder — but the registry, per-ability cooldown dict and selection bar exist
+already, because migrating one ability is far cheaper than migrating four in A2.
+
+- **`entities/abilities/boulder/`** — hold LMB to aim, release to drop; 3s cooldown, ~0.5s arc,
+  radius 70, damage 15. A plain `Node2D`, **not** an `Area2D`: it queries the spatial grid at
+  impact, so it needs no collision shape and adds no monitoring body to a 150-enemy wave.
+- **Routed through `_unhandled_input()`, not `_input()`** — and that distinction is load-bearing.
+  `_input()` runs *before* GUI handling, so a click on the ability bar would start an aim and
+  throw on release at whatever sits behind the bar. Controls consume clicks that land on them, so
+  unhandled input only sees the game world. (The tower drag in `_input()` has the same hazard and
+  gets away with it: a sidebar click resolves to a cell where nothing is placed.)
+- **`can_cast()` reads `round_state` live**, mirroring `is_valid_placement()` and
+  `_upgrades_allowed()`. It is not a cached flag, because `reset()` is called both entering a
+  round *and* leaving one (`start_new_round()`), so a cached flag would arm the boulder during
+  the build phase.
+- **`ui/aim_marker/`** draws its circle and reads the radius from the *selected* ability's payload
+  script, so the preview cannot drift from the real blast.
+- **`ui/ability_bar/`** is its own scene, deliberately not part of throwaway `round_ui.gd` — it is
+  a permanent UI element (ui_plan UI-1), so building it inside the throwaway means building it
+  twice. `build_sidebar` is the precedent.
+- Boulder kills route through `zombie._die()` → `map.on_zombie_killed()` like any other kill;
+  silver needed no wiring.
+
 ### Round lifecycle
 
-`level_controller.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`) and
-is the level controller — there is no separate `wave_manager.gd` yet (that arrives with
-progressive waves in alpha; the current build is deliberately single-wave).
+`level_controller.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`).
+`_start_round()` calls `wave_manager.begin()`; the flat `spawn_zombies()` path was deleted at the
+A1 handover.
 
 - **Placement** only succeeds in `PRE_ROUND` (`is_valid_placement` checks `round_state` first)
   and is capped at `PlayerData.slot_count`. `_start_round()` force-cancels any in-progress drag.
@@ -271,8 +334,12 @@ progressive waves in alpha; the current build is deliberately single-wave).
   round with 25 spawned and 3 escaped (17 lives left) is still a win.
 - **A loss short-circuits.** The instant `lives <= 0`, `_end_round(false)` fires immediately —
   it does not wait for the remaining spawned-but-unresolved zombies to individually escape or
-  die. Those get force-cleared via `_clear_all_zombies()`. `spawn_zombies()`'s loop also checks
-  `round_state` between spawns, so it stops feeding a round that already ended.
+  die. Those get force-cleared via `_clear_all_zombies()`, and `wave_manager.abort()` stops both
+  the spawn and breather timers so nothing feeds a round that already ended.
+  Note `on_zombie_escaped()` returns *before* forwarding to `wave_manager.on_enemy_resolved()`,
+  so the loss wins the race against a wave completing on the same escape. That is deliberate, and
+  it means `zombies_to_resolve` and `wave_remaining` can differ by exactly 1 at the moment of a
+  loss. Harmless — the round is over — but it reads like a desync if you find it cold.
 - **`start_new_round()`** (the "Play Again" flow) returns to `PRE_ROUND` **keeping the tower
   layout** — a layout you built survives replaying the level, and you can keep adding to it up
   to `slot_count`. Only a map change resets placement, which happens for free because loading
@@ -325,6 +392,7 @@ Measured on this machine, `level_01`, enemies spawned instantly:
 | Enemies | FPS (before fixes) | FPS (now) |
 |---|---|---|
 | 50 | 53 | **60** |
+| 152 (A1 wave 5, live round) | — | **60** |
 | 200 | — | **57** |
 | 600 | 2 | **4** |
 
@@ -375,13 +443,19 @@ A full pre-purge backup sits at `C:\disk\godot\projects\zombie-game-BACKUP-prepu
 
 Fixed and verified: collision layers, the `res://` export crash, per-frame disk I/O, the
 per-enemy spawn flush, `fire.gd`'s global group scan, the separation architecture, the
-archer's jitter-clobbering (retired along with the @export stats it was fighting over), and
-the archer/wizard stat asymmetry (both now resolve from `TowerStats`).
+archer's jitter-clobbering (retired along with the @export stats it was fighting over), the
+archer/wizard stat asymmetry (both now resolve from `TowerStats`), and — in A1 — `arrow.gd`'s
+missing `return` after `queue_free()` plus the enemy/tower draw order (towers now `z_index = 20`,
+enemies 10, aim marker 25, boulder 30).
 
 Still open, roughly by value:
 
-1. `arrow.gd:12` — `queue_free()` with no `return`; keeps attaching a timer to a freed node.
-   **One-word fix.** (`fire.gd` already does this correctly — copy it.)
+1. **The archer's damage upgrade track is inert.** Archer base damage is 10 and zombie HP is
+   exactly 10, so buying damage changes nothing (12 and 14 still one-shot a 10 HP enemy). Wizard
+   is unaffected (damage 3, four hits). **Measured, and deliberately not fixed:** raising zombie
+   HP is a binary cliff, not a dial — at HP 16 the archer needs two shots, roughly halving its
+   DPS, and a fresh-save round goes from a comfortable win to a loss at wave 4. A2's Ogre (80 HP)
+   and Troll (1000 HP) fix this for free. Don't "helpfully" raise zombie HP to fix the track.
 1b. **Freed-node access through the spatial grid — FIXED, but read this before touching the
    grid.** `zombie_grid_nodes` caches node references at rebuild time; splash damage reads
    them later in the same frame, by which point other kills may have freed them. This crashed
@@ -402,10 +476,12 @@ Still open, roughly by value:
    code twice. **Bundle it with the horde rewrite, or do it immediately before building levels
    2–15 — whichever comes first.** Note the `0` in `get_used_cells(0)` is a layer index that
    ceases to exist under `TileMapLayer`, where the node *is* the layer.
-6. Enemy `z_index = 10` draws enemies over towers.
-7. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
-8. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
+6. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
+7. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
    `archer_tower.gd` repositions the archer after `add_child`. Harmless, cosmetic.
+8. **The boulder has no PNG of its own.** It uses the shared `assets/1_pixel.png` with a brown
+   modulate, the same placeholder pattern `zombie.tscn` uses. The folder exists, so the artist
+   brief ("replace the PNG in each entity folder") just needs a `boulder.png` dropped in.
 
 **Fixed in the `dd49e82` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
 `asserts/` typo (now `assets/`), and the stale `damage`/`wizard_radius` scene overrides.
@@ -445,6 +521,29 @@ match the pre-refactor game exactly, so the refactor introduced no balance chang
 **Tower removal + moving.** ✅ Done and verified live (`a22ca4a`), per
 [tower_editing_plan.md](tower_editing_plan.md).
 
+### Alpha
+
+**A1 — "it's a game now".** ✅ Done and verified live, per [a1_plan.md](a1_plan.md). Twelve
+commits: the manager seam, the boulder (cooldown → entity → aiming → registry + bar), then the
+wave machine (phases → counters → breather → reset guards → handover), then HUD and tuning.
+A full round is 408 enemies across 5 waves at 60 FPS, ending won or lost from a single Start
+press.
+
+Three things A1 taught that generalise:
+
+1. **Make the seam commit purely additive.** Step 0 wired every hook both tracks would need but
+   deleted nothing, so the old flat spawner kept the game playable while the wave machine was
+   built beside it. An earlier draft of the plan deleted `spawn_zombies()` up front — that would
+   have left the game with no enemies at all for eight commits.
+2. **Tuning assumptions don't survive contact.** The plan assumed `max_lives` had to rise from 20
+   to 30 (20 lives against 255 enemies looked like an 8% leak tolerance). Measured: a fresh save
+   lost **four** lives across the whole round, because a choke point means almost nothing leaks.
+   The change was dropped.
+3. **A test hook that skips the real path is worse than no hook.** `force_clear_wave()` stepped
+   waves 1→5 correctly while never ending the round, because it bypassed the
+   `_check_round_complete()` that real resolutions trigger. It would have reported five waves
+   working with round-end completely untested.
+
 Three bugs found in the M1 audit are worth remembering for the class of mistake, not the fix:
 
 1. **Nothing ever saved.** `save_data()` had exactly one caller — `reset_progress()`. Every
@@ -460,7 +559,7 @@ Three bugs found in the M1 audit are worth remembering for the class of mistake,
    changes the state rather than trusting a lifecycle signal to cover every entry point.
 
 The enemy rename (`zombie` → `goblin` under the medieval theme) is approved and scheduled for
-alpha.
+**A2**, alongside the new enemy types and the three remaining abilities.
 
 `implementation_plan.md` is now a **design reference**, not a roadmap — its phase numbering is
 superseded by the three stages above, but its tower and enemy design tables are still the source
@@ -478,6 +577,27 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the
   mismatch.
+- **`node_call_method` is editor-only.** For a *running* game it is `execute_code`. Bind the map
+  with `scope_path` (`/root/map1`) to call its methods unqualified and to dodge the Variant
+  property-chaining limitation.
+- **Autoloads are unreachable as bare identifiers in `execute_code`** — `PlayerData.silver` fails
+  with "Invalid named index". Address them by node path: `get_node("/root/PlayerData").get("silver")`.
+- **An explicit `.name` on a button is not enough to make its path guessable.** `round_ui`'s
+  buttons are named, but their procedurally created *parents* are not — the real path looks like
+  `RoundUI/@Panel@24/@VBoxContainer@25/PlayAgainButton`, and the indices shift whenever a panel is
+  added. Resolve at runtime with `find_child("Name", true, false).get_path()`, then feed that to
+  `click_node`.
+- **`set_anchors_preset()` alone leaves a procedurally created Control at size (0,0)** — children
+  anchored to it then centre on an empty rect and land off-screen. Set `anchor_*` **and**
+  `offset_*` explicitly. Cost an hour on the ability bar.
+- **MCP round trips are ~5 seconds.** Anything shorter-lived than that cannot be observed by
+  polling — a 3s cooldown always reads as 0 by the next call. Two techniques that work:
+  `get_tree().set("paused", true)` to freeze mid-animation for a screenshot, and holding a round
+  open indefinitely by giving the wave manager nothing to resolve.
+- **To hold a round open for inspection:** with no enemies alive, `_check_round_complete()` never
+  fires, so the round sits in `IN_ROUND` forever. `get_tree().set_group("zombie", "speed", 0.0)`
+  freezes the horde in place — but it freezes them *where they currently are*, not at the spawn
+  point, so sample a live zombie's position rather than assuming where the cluster is.
 - The main scene is `levels/level_01.tscn` (`uid://c4tocub30g0w`). `testbed/clean_area.tscn` is a stripped-down
   test harness that implements the same `get_flow_direction` / `is_wall` contract — if you
   change that contract, update it too, or its enemies break.

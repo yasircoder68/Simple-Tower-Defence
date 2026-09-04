@@ -26,10 +26,15 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 
 ## The release run
 
-### A1 — "it's a game now" · 6%
+### A1 — "it's a game now" · 6% ✅ BUILT
 
 The round becomes something you play rather than watch.
-**Full work order: [a1_plan.md](a1_plan.md).**
+**Full work order: [a1_plan.md](a1_plan.md)** — implemented and verified live in twelve commits.
+
+A round is now 408 enemies across 5 escalating waves at 60 FPS, with a breather between each and
+a boulder ability as the live input, ending won or lost from a single Start press. What remains
+before this is actually *released*: a hand playtest to confirm the difficulty (see a1_plan's
+caveat), and an itch.io build.
 
 - **Progressive waves.** Difficulty escalates within a level instead of one flat batch of
   enemies every time. Right now the power curve rises forever and nothing pushes back — this is

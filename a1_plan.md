@@ -1,6 +1,34 @@
 # A1 — "It's a Game Now" — Implementation Work Order
 
-**Status: planned, not started.** This is the first public itch.io release, per
+**Status: implemented and verified live.** Twelve commits, in the order the Sequencing table
+below lays out. See CLAUDE.md's *Waves (A1)* and *Abilities (A1)* sections for the shipped design;
+this document is kept for its rationale and for the record of what the plan got wrong.
+
+### What the plan got wrong
+
+Five things, all found by building it. Worth reading before trusting a similar plan:
+
+1. **The first draft's Step 0 deleted `spawn_zombies()` while `wave_manager` was still a stub** —
+   which would have left the game with no enemies at all for eight commits, and self-defeated the
+   "build the boulder against the existing round" argument for doing Track B first. Step 0 was
+   rewritten to be purely additive; deletion moved to W-5.
+2. **"Only Step 0 touches `level_controller.gd`" was false.** Both the input routing and the
+   enemy-resolution forwarding live there, so both had to be stubbed in at Step 0 or the tracks
+   would collide in the one file the split exists to protect.
+3. **`max_lives` did NOT need raising to 30.** Measured on a fresh save: four lives lost across
+   255 enemies, not the ~8% leak tolerance the arithmetic predicted. A choke point means almost
+   nothing leaks. **Do not apply that change.**
+4. **W-5 did not remove "duplicated" `zombies_to_resolve` decrements** — W-2's design made them
+   the mechanism rather than a duplicate, so the handover was three edits, not four, and the
+   verified M1 win path was left untouched.
+5. **`node_call_method` is editor-only**; runtime verification is `execute_code`. Corrected
+   throughout below.
+
+Also added mid-flight, at the user's request: **B-4**, the ability registry and selection bar.
+
+---
+
+This is the first public itch.io release, per
 [alpha_plan.md](alpha_plan.md). It closes the two gaps that stop a round from being *played*
 rather than watched: the round doesn't escalate, and there is no live input.
 
@@ -392,9 +420,29 @@ of build order.
 Two things to prove that will not show up by simply playing:
 
 1. **Lose during wave 3, then Play Again, then Start.** No ghost spawns from the abandoned wave.
-   This is the Timer/token fix, and it is invisible until it isn't.
+   This is the Timer/token fix, and it is invisible until it isn't. ✅ **Passed** at W-5: lost
+   during a 60-enemy wave, replayed, got exactly 20 spawned for a fresh wave 1.
 2. **Boulder into a dense cluster while a wizard fireball lands the same frame.** No
-   `previously freed` crash.
+   `previously freed` crash. ✅ **Passed**: four boulders into one cluster while both wizards
+   fired into the same area, zero errors. Also passed a harder variant at B-2 — four boulders
+   impacting in a single frame, 29 kills, no crash.
+
+### Measured results (fresh save, base stats, competent 4-tower choke, no ability use)
+
+| Setting | Outcome |
+|---|---|
+| HP 10, scale 1.0 | **Win, 16/20 lives** — passive; the ability was never needed |
+| HP 16, scale 1.0 | **Loss at wave 4** — overshoots badly |
+| HP 10, scale **1.6** | **Loss at wave 5** — the ability becomes necessary ✅ shipped |
+
+`difficulty_scale = 1.6` is set on `level_01.tscn` (408 enemies, peak 152 concurrent, 60 FPS).
+Waves 1–2 stay comfortable, wave 3 costs ~4 lives, wave 4 ~10, and wave 5 is the real test.
+
+**Caveat, unresolved:** a *win* with real ability use was never measured — driving ~13 casts
+across a wave is not something the MCP harness can do. The reasoning behind 1.6 is that one
+boulder into a dense wave-5 cluster measurably killed **18**, against a deficit of roughly 20.
+That is inference, not measurement. **Play one round by hand before shipping**; if it feels
+unwinnable, 1.4 is the obvious step back and it is a single value in the scene.
 
 Verification method, per CLAUDE.md's Gotchas: `execute_code` for manager methods,
 `click_node` for buttons by exact path, `runtime_get_script_vars` for phase and counter state.
@@ -462,8 +510,11 @@ the whole round, so an early leak haunts you at wave 5. That tension is the poin
 arithmetic shifts hard: today it is 20 lives against 50 enemies, a 40% leak tolerance. Under waves
 it is 20 against 255, about 8%.
 
-**Assumed decision: raise `max_lives` to 30.** Tune from there. The wrong outcome is inheriting a
-substantially harder game as a side effect rather than choosing it.
+**~~Assumed decision: raise `max_lives` to 30.~~ RESOLVED — keep 20.** The arithmetic was wrong.
+Measured on a fresh save with a competent 4-tower choke: **four** lives lost across the whole
+255-enemy round, not the ~20 the leak-tolerance calculation implied. Enemies funnel and die at the
+choke; they do not leak in proportion to their count. This is a good example of a plausible
+spreadsheet argument that the running game simply refutes.
 
 **2. The archer's damage upgrade track is inert.**
 Archer base damage is 10 and zombie HP is 10 — an exact one-shot. With HP fixed forever at 10,
@@ -473,11 +524,13 @@ so four hits, and upgrades genuinely reduce that).
 
 Constant-across-waves and constant-at-*10* are separate decisions. Two ways out:
 
-- **Raise the constant to ~16**, so archers need two shots and the track bites immediately.
-  *(Recommended.)*
+- ~~**Raise the constant to ~16**, so archers need two shots and the track bites immediately.~~
 - **Accept it**, and let A2's Ogre and Troll fix it automatically.
 
-**Still open — decide at the tuning pass (step 11).**
+**RESOLVED at step 11 — accept it; zombie HP stays 10.** HP 16 was built and measured: because
+archer damage is *exactly* 10, any HP above it doubles the shots needed, roughly halving archer
+DPS. A fresh-save round went from a comfortable win to a **loss at wave 4**. It is a binary cliff,
+not a dial. Volume (`difficulty_scale`) is the usable difficulty knob; enemy HP is not.
 
 **3. Silver per round roughly quintuples, and that is fine.**
 ~255 kills instead of 50 means ~510 silver per round instead of ~100. But the round is also
