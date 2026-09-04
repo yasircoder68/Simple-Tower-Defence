@@ -12,6 +12,15 @@ const SEPARATION_RADIUS := 32.0
 ## this reward is priced against those same unknowns. Tune later, not now.
 @export var gold_reward: int = 10
 
+## How many rows of wave_manager's WAVE_TABLE this level uses, and a multiplier
+## on each wave's enemy count. Two numbers per level instead of a bespoke wave
+## table per level — see a1_plan.md.
+@export var wave_count: int = 5
+@export var difficulty_scale: float = 1.0
+
+## The pre-wave flat spawn. Still live: A1's Step 0 is purely additive, and
+## these die at the W-5 handover once wave_manager actually spawns. Setting
+## zombie_count to 0 makes this path inert while Track W is being developed.
 @export var zombie_count: int = 50
 @export var spawn_interval: float = 0.05
 @export var debug_logging: bool = false
@@ -70,6 +79,8 @@ signal round_ended(won: bool, gold_awarded: int, silver_earned: int)
 
 var round_state: RoundState = RoundState.PRE_ROUND
 var base_health: Node = null
+var wave_manager: Node = null
+var ability_manager: Node = null
 var zombies_to_resolve: int = 0
 ## Silver earned in the current round only — reported on the result screen.
 ## Round-scoped; the running total lives in PlayerData.silver.
@@ -82,8 +93,20 @@ func _ready() -> void:
 	add_to_group("map")
 	generate_flow_field()
 
+	# Managers are constructed before round_ui because round_ui connects to
+	# their signals in setup() — the ordering dependency base_health already had.
 	base_health = preload("res://systems/base_health.gd").new()
 	add_child(base_health)
+
+	wave_manager = preload("res://systems/wave_manager.gd").new()
+	wave_manager.name = "WaveManager"
+	add_child(wave_manager)
+	wave_manager.setup(self)
+
+	ability_manager = preload("res://systems/ability_manager.gd").new()
+	ability_manager.name = "AbilityManager"
+	add_child(ability_manager)
+	ability_manager.setup(self)
 
 	# Instantiate Sidebar and Ghost
 	var sidebar_scene = preload("res://ui/build_sidebar/build_sidebar.tscn")
@@ -174,6 +197,7 @@ func _start_round() -> void:
 
 	round_state = RoundState.IN_ROUND
 	base_health.reset()
+	ability_manager.reset()
 	zombies_to_resolve = zombie_count
 	silver_earned_this_round = 0
 
@@ -199,6 +223,8 @@ func start_new_round() -> void:
 	# the lives you're about to play with rather than "0/20" left over from the
 	# loss you just took. _start_round() resetting again is harmless.
 	base_health.reset()
+	wave_manager.reset()
+	ability_manager.reset()
 	round_state = RoundState.PRE_ROUND
 	$CanvasLayer/StartButton.show()
 
@@ -213,6 +239,9 @@ func on_zombie_killed(silver_reward: int) -> void:
 	PlayerData.earn_silver(silver_reward)
 	silver_earned_this_round += silver_reward
 	zombies_to_resolve -= 1
+	# Inert until W-2, which moves wave-scoped accounting into the manager.
+	# Forwarding from here means that move never has to reopen this file.
+	wave_manager.on_enemy_resolved()
 	_check_round_complete()
 
 
@@ -226,6 +255,10 @@ func on_zombie_escaped() -> void:
 	if base_health.lives <= 0:
 		_end_round(false)
 		return
+	# Placed after the loss short-circuit, not before, so a loss still wins the
+	# race against a wave completing on the same escape. Same reason
+	# _check_round_complete() sits here. Inert until W-2.
+	wave_manager.on_enemy_resolved()
 	_check_round_complete()
 
 
@@ -236,6 +269,12 @@ func _check_round_complete() -> void:
 
 func _end_round(won: bool) -> void:
 	round_state = RoundState.ROUND_WON if won else RoundState.ROUND_LOST
+
+	# _clear_all_zombies() handles enemies already on the board, but nothing
+	# stopped a RUNNING spawner before this — that gap is exactly what let a
+	# stale spawn coroutine bleed into the next round.
+	wave_manager.abort()
+	ability_manager.set_enabled(false)
 
 	var gold_awarded := 0
 	if won:
@@ -283,6 +322,17 @@ func _on_start_drag(tower_type: String):
 ##   RMB release, not dragging, cell occupied  -> remove
 ## All of it is PRE_ROUND-only, gated once at the top.
 func _input(event):
+	# Abilities are the only live input a round has, and they are IN_ROUND
+	# only — so this branch and the PRE_ROUND tower-editing branch below can
+	# never both be active. That separation is what lets "hold LMB" mean two
+	# entirely different things without either side knowing about the other.
+	#
+	# This forwards and nothing else: all ability logic lives in
+	# ability_manager, which is why Track B never has to reopen this file.
+	if round_state == RoundState.IN_ROUND:
+		ability_manager.handle_input(event)
+		return
+
 	if round_state != RoundState.PRE_ROUND:
 		return
 

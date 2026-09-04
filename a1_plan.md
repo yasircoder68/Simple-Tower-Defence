@@ -154,26 +154,49 @@ check in the damage loop**, exactly as `fire.gd` does. Do not hand-roll a new qu
 
 ## The work split
 
-The whole split turns on one idea: **only Step 0 touches `level_controller.gd`.** After that,
-waves live in `wave_manager.gd`, the boulder lives in `ability_manager.gd` plus its own entity
-folder, and neither track reopens the 554-line file both would otherwise be contending over.
-That is what makes the two tracks genuinely independent rather than nominally independent.
+The split turns on one idea: **Step 0 wires every seam both tracks will ever need, so neither
+track has to reopen the 554-line file they would otherwise contend over.**
+
+Precisely:
+
+- **Track B never touches `level_controller.gd` at all.**
+- **Track W touches it exactly once**, in a three-line handover commit at the very end.
+
+That is weaker than "only Step 0 touches it", and it is what actually holds. The input routing and
+the enemy-resolution forwarding both live in `level_controller.gd`, so both have to be stubbed in
+at Step 0 or the two tracks collide in the one file the split exists to protect.
+
+Track letters carry **no ordering** — W is waves, B is boulder. See *Sequencing* for the order.
 
 ### Step 0 — the seam (small, blocks everything)
 
-Write both managers as **stubs with their full public API and no behavior**, wire them in, commit.
-Each track then fills in a file nobody else is in.
+Write both managers as **stubs with their full public API and no behavior**, wire every seam they
+will eventually need, and commit.
 
-`level_controller.gd`:
+**Step 0 is purely additive — it deletes nothing.** The flat 50-enemy round keeps working exactly
+as it does today. That is what the boulder gets built and tested against, and it is why the
+handover that finally removes `spawn_zombies()` sits at the *end* of Track W rather than here.
+Deletion belongs with the replacement, never with the seam — a Step 0 that rips out spawning while
+`wave_manager` is still a stub leaves the game with no enemies at all, which is the most broken
+state in the entire run.
+
+`level_controller.gd`, all additive:
 
 - `_ready()`: create `base_health`, `wave_manager`, `ability_manager`, **then** call
   `round_ui.setup(self)`. `round_ui` connects to their signals, so it must be constructed last —
   the same ordering dependency `base_health` already has.
-- `_start_round()`: `wave_manager.begin()` replaces `spawn_zombies()`; `ability_manager.reset()`.
-- `_end_round()`: `wave_manager.abort()`, `ability_manager.set_enabled(false)`.
-- `start_new_round()`: reset both to idle.
-- Delete `spawn_zombies()`, `zombie_count`, `spawn_interval`. Add `@export var wave_count: int = 5`
-  and `@export var difficulty_scale: float = 1.0`.
+- `_start_round()`: add `ability_manager.reset()`. **Leave the `spawn_zombies()` call alone.**
+- `_end_round()`: add `wave_manager.abort()` and `ability_manager.set_enabled(false)`.
+- `start_new_round()`: reset both managers to idle.
+- `_input()`: add an `IN_ROUND` branch that does nothing but call
+  `ability_manager.handle_input(event)`. The stub ignores it. **This is the entire reason Track B
+  never has to touch this file.**
+- `on_zombie_killed()` / `on_zombie_escaped()`: add a forwarding call to
+  `wave_manager.on_enemy_resolved()` *alongside* the existing `zombies_to_resolve` accounting,
+  which stays live and correct. The stub ignores it. **This is the entire reason Track W's counter
+  split never has to touch this file.**
+- Add `@export var wave_count: int = 5` and `@export var difficulty_scale: float = 1.0`. Leave
+  `zombie_count` and `spawn_interval` in place — they die at the handover.
 
 Two one-line fixes belong in this same commit — both are cheap now and both get worse if left:
 
@@ -183,9 +206,16 @@ Two one-line fixes belong in this same commit — both are cheap now and both ge
 - **`zombie.tscn` `z_index = 10`** draws enemies over towers (Known issue 6). Give towers a
   higher `z_index` than enemies. The board gets substantially busier with 95-enemy waves.
 
-### Track A — waves (`game/systems/wave_manager.gd`)
+### Track W — waves (`game/systems/wave_manager.gd`)
 
-**A-1 · Phase machine and Timer-driven spawning.**
+Everything here lands in `wave_manager.gd` until the handover (W-5).
+
+**While developing this track, set the level's `zombie_count` to 0 in the inspector.** The old
+`spawn_zombies()` path is still live at this point; zeroing the export makes it inert, so pressing
+Start spawns nothing and `wave_manager.begin()` can be driven on its own via `execute_code`.
+No code change, nothing to revert, and the export dies at the handover anyway.
+
+**W-1 · Phase machine and Timer-driven spawning.**
 Phases `IDLE → SPAWNING → CLEARING → BREATHER → … → DONE`, private to the manager. Spawn
 from a `Timer`, one enemy per `timeout`, index held in a plain field.
 
@@ -206,9 +236,13 @@ exposes its whole state to `runtime_get_script_vars`.
 If the coroutine is kept instead, the minimum fix is a monotonic `_run_token: int` captured by the
 loop and re-checked after every `await`, incremented on every `begin()` and `abort()`.
 
-**A-2 · The counter split.**
-`zombies_to_resolve` becomes wave-scoped `wave_remaining`. A wave clears at 0. The round ends only
-when `wave_remaining == 0 AND current_wave == wave_count`.
+**W-2 · The counter split.**
+`wave_manager` takes ownership of resolution accounting through the `on_enemy_resolved()` seam
+Step 0 already wired. It holds a wave-scoped `wave_remaining`; a wave clears at 0; the round ends
+only when `wave_remaining == 0 AND current_wave == wave_count`.
+
+Because the seam exists, this lands entirely inside `wave_manager.gd` — `level_controller`'s own
+`zombies_to_resolve` bookkeeping stays live and untouched until the handover removes it.
 
 Write that conjunction deliberately rather than adapting the existing check in
 `_check_round_complete()`. One counter is now answering two questions that have stopped being the
@@ -219,14 +253,25 @@ specific, loud symptom: **victory after wave 1.**
 so it cannot hit zero early while enemies are still being fed onto the board. Today's code already
 works this way.
 
-**A-3 · Breather.**
+**W-3 · Breather.**
 Another phase: `@export var breather_seconds: float = 12.0`, a Timer, and a skip method. Placement
 and upgrades stay locked with zero new code because the round is still `IN_ROUND`.
 
-**A-4 · Abort and reset.**
+**W-4 · Abort and reset.**
 `abort()` stops both timers and clears phase. `reset()` returns to wave 0. Both called from
 Step 0's hooks. `_clear_all_zombies()` already handles enemies; nothing currently handles a running
 spawner.
+
+**W-5 · The handover.** *(The one and only Track W edit to `level_controller.gd`.)*
+Only once W-1 through W-4 are built and driven green:
+
+- `_start_round()`: `wave_manager.begin()` replaces the `spawn_zombies()` call.
+- Delete `spawn_zombies()`, `zombie_count`, `spawn_interval`.
+- Remove the now-duplicated `zombies_to_resolve` decrements and `_check_round_complete()` — the
+  manager owns that decision from here.
+
+One commit, three edits, fully reversible. Restore the level's `zombie_count` export value before
+this if it was zeroed for development, so the diff doesn't quietly carry a 0 into the deletion.
 
 **Signals throughout:** `wave_started(num, total, count)`, `wave_cleared(num)`,
 `breather_started(seconds)`, `all_waves_complete()`. Signal-driven from day one even when the only
@@ -234,7 +279,7 @@ listener is a raw `Label` — per CLAUDE.md's Build order note, retrofitting str
 expensive part, not style.
 
 **Design the API for the harness.** Small explicit methods — `begin()`, `abort()`,
-`on_enemy_resolved()`, `force_clear_wave()`, `skip_breather()` — because `node_call_method` is the
+`on_enemy_resolved()`, `force_clear_wave()`, `skip_breather()` — because `execute_code` is the
 reliable MCP verb and playing five full waves by hand after every tuning change is not a workable
 loop.
 
@@ -251,19 +296,21 @@ persisted.
 convention. Spawns at cast, arcs ~0.5s, deals damage **on impact, not on cast**. Cooldown starts at
 cast. See *The highest-risk code in A1* above for the damage loop's one hard requirement.
 
-**B-3 · Input routing.**
-`_input()` gains an `IN_ROUND` branch: LMB press shows the aim marker, motion moves it, release
-calls `cast_boulder()`. `_input()` does nothing but route — all logic lives in the manager.
+**B-3 · Aim marker and input handling.**
+Fill in `ability_manager.handle_input(event)`, whose call site Step 0 already added: LMB press
+shows the aim marker, motion moves it, release calls `cast_boulder()`. `level_controller._input()`
+does nothing but forward — all logic lives in the manager, so **this commit touches no file Track W
+touches.**
 
 Use a separate small aim marker rather than the existing tower `ghost`, which carries
 tower-specific `set_tower()` / `update_validity()`.
 
 The routing split matters for verification, not just tidiness: `get_global_mouse_position()` is not
 reliably driven by `input_simulate` in this environment (CLAUDE.md, Gotchas), so calling
-`cast_boulder(world_pos)` directly via `node_call_method` is the only way to verify this path. Same
+`cast_boulder(world_pos)` directly via `execute_code` is the only way to verify this path. Same
 workaround that got tower move/remove verified.
 
-### Step 2 — UI (needs both tracks)
+### UI (needs both tracks)
 
 Bolt onto `round_ui.gd`. It is explicitly throwaway and A1's headline is mechanics; `ui_plan.md`
 budgets interface work as 3% spread across the whole alpha run rather than front-loaded into the
@@ -275,7 +322,7 @@ Give every new button an explicit `.name`, as `round_ui` already does — anonym
 created `Control`s get auto-generated names like `@Button@42` that are not guessable in advance,
 and `click_node` needs an exact path.
 
-### Step 3 — tune and verify
+### Tune and verify
 
 Boulder numbers can only be judged against real wave density, so tuning is its own pass regardless
 of build order.
@@ -287,26 +334,59 @@ Two things to prove that will not show up by simply playing:
 2. **Boulder into a dense cluster while a wizard fireball lands the same frame.** No
    `previously freed` crash.
 
-Verification method, per CLAUDE.md's Gotchas: `node_call_method` for manager methods,
+Verification method, per CLAUDE.md's Gotchas: `execute_code` for manager methods,
 `click_node` for buttons by exact path, `runtime_get_script_vars` for phase and counter state.
 Confirm what happened via state, never via an event's `dispatched: true`.
 
+Three harness details confirmed while landing Step 0, all of which cost a round trip to discover:
+
+- **`node_call_method` is editor-only.** For a *running* game it is `execute_code`. Bind the map
+  with `scope_path` (`/root/map1`) to call its methods unqualified and to dodge the Variant
+  property-chaining limitation.
+- **Autoloads are unreachable as bare identifiers in `execute_code`** — `PlayerData.silver` fails
+  with "Invalid named index". Address them by node path instead:
+  `get_node("/root/PlayerData").get("silver")`.
+- **An explicit `.name` on a button is not enough to make its path guessable.** `round_ui`'s
+  buttons are named, but their procedurally created *parents* are not — the real path is
+  `RoundUI/@Panel@20/@VBoxContainer@21/PlayAgainButton`. Resolve it at runtime with
+  `find_child("Name", true, false).get_path()` and feed that to `click_node`. Worth knowing before
+  the UI step adds three more buttons.
+
 ---
 
-## Sequencing
+## Sequencing — do these one at a time
 
-**Solo:** Step 0 → Track B → Track A → Step 2 → Step 3.
+Eleven commits, in this order. **Every one of them leaves the game launchable and playable**, which
+is the property the order is built around: there is no point in the run where the build is broken
+waiting for the next commit to rescue it.
 
-Boulder first, even though waves are the larger item. It is smaller, self-contained, and testable
-against the *existing* flat 50-enemy round with no waves in place. It de-risks the
-ability-manager and MCP-verification pattern while the codebase is still simple, and it lands
-"something to do during a round" as a playable thing before the structural work starts.
+| # | Commit | Files | Done when |
+|---|---|---|---|
+| 0 | **Seam** — both manager stubs, all five wiring points, plus the `arrow.gd` and `z_index` fixes | `level_controller.gd`, `arrow.gd`, `zombie.tscn`, 2 new stubs | Game plays exactly as before. Nothing observable changed — that is the point |
+| 1 | **B-1** cooldown + `cast_boulder()` API | `ability_manager.gd` | `can_cast()` gates on a 3s timer; `cooldown_changed` fires |
+| 2 | **B-2** boulder entity + damage loop | `entities/abilities/boulder/` | `cast_boulder(pos)` via `execute_code` kills a cluster, no crash |
+| 3 | **B-3** aim marker + `handle_input()` | `ability_manager.gd` | Hold-aim-release works by hand in a live round |
+| 4 | **W-1** phase machine + Timer spawning | `wave_manager.gd` | `begin()` spawns wave 1 on a `zombie_count = 0` level |
+| 5 | **W-2** counter ownership | `wave_manager.gd` | Five waves run start to finish; no early victory |
+| 6 | **W-3** breather phase | `wave_manager.gd` | Countdown between waves; placement still locked |
+| 7 | **W-4** abort + reset | `wave_manager.gd` | Loss mid-wave stops the spawner dead |
+| 8 | **W-5 handover** | `level_controller.gd` | Start button runs the wave machine; `spawn_zombies()` gone |
+| 9 | **UI** wave counter, breather countdown + skip, cooldown bar | `round_ui.gd` | All three read correctly through a full round |
+| 10 | **Tune + verify** | numbers only | The two proof cases below pass |
 
-**Two people:** Step 0 is a blocking prerequisite for both. Then A and B run fully in parallel
-with no shared files. Then Steps 2 and 3 join them back up.
+**Why the boulder comes first**, even though waves are the larger item: it is smaller,
+self-contained, and testable against the *existing* flat 50-enemy round, which Step 0 deliberately
+leaves intact. It de-risks the ability-manager and MCP-verification pattern while the codebase is
+still simple, and it lands "something to do during a round" as a playable thing before any
+structural work starts. Reversing the order costs you that test bed.
 
-**Commit boundaries:** Step 0, then A-1 through A-4 and B-1 through B-3 individually, then UI,
-then tuning. Nine commits, none of which leaves the game unplayable.
+**Steps 4–7 are where the two live spawners briefly coexist** — the old `spawn_zombies()` path and
+the new machine. They never actually run together, because Track W development zeroes
+`zombie_count` (see Track W's intro) and the handover at step 8 removes the old path outright.
+
+**Two people instead of one:** step 0 is a blocking prerequisite for both. Then steps 1–3 and 4–7
+run fully in parallel — Track B touches no file Track W touches. Step 8 is Track W's to land, and
+steps 9–10 join the two back up.
 
 ---
 
@@ -333,7 +413,7 @@ Constant-across-waves and constant-at-*10* are separate decisions. Two ways out:
   *(Recommended.)*
 - **Accept it**, and let A2's Ogre and Troll fix it automatically.
 
-**Still open — decide at the Step 3 tuning pass.**
+**Still open — decide at the tuning pass (step 10).**
 
 **3. Silver per round roughly quintuples, and that is fine.**
 ~255 kills instead of 50 means ~510 silver per round instead of ~100. But the round is also

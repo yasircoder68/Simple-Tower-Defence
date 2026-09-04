@@ -10,7 +10,8 @@ func _ready():
 	# If no target, destroy
 	if not is_instance_valid(target):
 		queue_free()
-		
+		return
+
 	# Destroy arrow after 3 seconds to prevent memory leaks
 	var lifetime_timer = Timer.new()
 	lifetime_timer.wait_time = 3.0

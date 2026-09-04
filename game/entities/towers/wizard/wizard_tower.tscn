@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://df70c4b2p48n7" path="res://entities/towers/wizard/wizard.tscn" id="3_wizard"]
 
 [node name="WizardTower" type="Node2D" unique_id=1908118483]
+z_index = 20
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=1004197458]
 scale = Vector2(9, 9)
