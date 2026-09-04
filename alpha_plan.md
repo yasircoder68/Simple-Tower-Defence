@@ -26,26 +26,38 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 
 ## The release run
 
-### A1 — "it's a game now" · 8%
+### A1 — "it's a game now" · 6%
 
 The round becomes something you play rather than watch.
+**Full work order: [a1_plan.md](a1_plan.md).**
 
 - **Progressive waves.** Difficulty escalates within a level instead of one flat batch of
   enemies every time. Right now the power curve rises forever and nothing pushes back — this is
-  the fix.
-- **The three cooldown abilities.** Towers are pre-placed and auto-fire, so abilities are the
-  *only* live input a round has. Without them, a round is a spectator phase.
+  the fix. Escalation is **density only** — count and spawn interval. Enemy HP and speed stay
+  constant across waves, so waves never touch the enemy scene.
+- **One cooldown ability: the boulder.** Hold left mouse to aim, release to drop; 3s cooldown.
+  Towers are pre-placed and auto-fire, so an ability is the *only* live input a round has.
+  Without one, a round is a spectator phase.
 - A short breather between waves. Not a build phase — placement still happens once, before the
-  round starts.
+  round starts, and stays locked through the breather.
 
 **Ship it.** This is the first itch release.
 
-### A2 — enemy variety · 6%
+> **Scope note.** A1 originally carried all three cooldown abilities; they moved to A2 to get the
+> first public build out sooner. The boulder's 3-second cooldown makes it a different kind of
+> thing from the 30/60/90s abilities — it is the baseline verb of a round, not a special, so it
+> stands on its own as A1's live input. The move also fixes a design problem for free: Divine
+> Smite's "huge single-target damage" is meaningless while every enemy has 10 HP, and A2 is
+> exactly where the enemies worth smiting arrive.
+
+### A2 — enemy variety · 8%
 
 - Several enemy types with genuinely different roles: fodder in huge numbers, a fast rusher that
   punishes slow-firing towers, a heavy that must not be allowed through.
 - The approved rename from zombies to the medieval goblin horde.
 - A shared foundation for enemies so adding the next one is cheap.
+- **The three remaining abilities** — Rain of Arrows, Divine Smite, Dragon Fire — moved here
+  from A1. They land alongside the enemies that give them a job.
 
 ### A3 — big battles · 12%
 
