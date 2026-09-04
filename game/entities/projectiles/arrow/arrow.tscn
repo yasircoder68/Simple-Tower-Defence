@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://jmb3igjrvebn"]
+
+[ext_resource type="Script" uid="uid://bn10jrsd0p6lf" path="res://entities/projectiles/arrow/arrow.gd" id="1_23jat"]
+[ext_resource type="Texture2D" uid="uid://d2op2hcal7ihu" path="res://entities/projectiles/arrow/arrow.png" id="2_q8ifc"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_7ckq1"]
+radius = 4.0447497
+
+[node name="Arrow" type="Area2D" unique_id=204475694]
+scale = Vector2(5, 5)
+collision_layer = 4
+script = ExtResource("1_23jat")
+metadata/_edit_group_ = true
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1467446870]
+texture = ExtResource("2_q8ifc")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=2119023533]
+shape = SubResource("CircleShape2D_7ckq1")
+
+[connection signal="area_entered" from="." to="." method="_on_area_entered"]

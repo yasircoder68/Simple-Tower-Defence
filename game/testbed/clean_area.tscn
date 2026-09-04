@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://gp4iduq5hfkw"]
+
+[ext_resource type="Script" path="res://testbed/clean_area.gd" id="1_6fqc5"]
+[ext_resource type="PackedScene" path="res://entities/towers/wizard/wizard_tower.tscn" id="2_wiztower"]
+
+[node name="CleanArea" type="Node2D"]
+script = ExtResource("1_6fqc5")
+zombie_count = 15
+spawn_interval = 0.8
+
+[node name="StartPoint" type="Marker2D" parent="."]
+position = Vector2(50, 150)
+
+[node name="EndPoint" type="Marker2D" parent="."]
+position = Vector2(700, 150)
+
+[node name="WizardTower" parent="." instance=ExtResource("2_wiztower")]
+position = Vector2(350, 200)

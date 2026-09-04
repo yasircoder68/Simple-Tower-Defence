@@ -18,8 +18,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 MCPRuntimeServer="*res://addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd"
-PlayerData="*res://scripts/player_data.gd"
-TowerStats="*res://scripts/tower_stats.gd"
+PlayerData="*res://autoload/player_data.gd"
+TowerStats="*res://autoload/tower_stats.gd"
 
 [display]
 

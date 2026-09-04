@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://dfngcrxap7kyt"]
-
-[ext_resource type="Script" uid="uid://hnpctin5nv3u" path="res://scripts/build_sidebar.gd" id="1_63iyk"]
-
-[node name="BuildSidebar" type="CanvasLayer" unique_id=1014373883]
-script = ExtResource("1_63iyk")
