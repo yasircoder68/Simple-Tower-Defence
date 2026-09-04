@@ -4,9 +4,9 @@ extends Node
 ## boulder. Cooldowns are round-scoped and are never persisted — see CLAUDE.md's
 ## state boundary table.
 ##
-## STUB — A1 Step 0. Every method below is deliberately inert. The seams in
-## level_controller.gd already call into them, which is what lets Track B fill
-## this file in without reopening that one. See a1_plan.md, Track B.
+## A1 Track B. B-1 (this) owns the cooldown and the cast gate; B-2 adds the
+## boulder itself; B-3 adds aiming and input. Nothing here touches
+## level_controller.gd — the seams it calls were wired at Step 0.
 
 signal cooldown_changed(remaining: float, total: float)
 
@@ -18,8 +18,9 @@ const BOULDER_COOLDOWN := 3.0
 
 var map: Node2D = null
 
-## False outside IN_ROUND, so the boulder is inert during PRE_ROUND (where the
-## same mouse button means tower dragging) and after the round has ended.
+## Explicit off-switch, forced false by level_controller._end_round(). This is
+## belt-and-braces on top of the live round_state check in _is_in_round(), not
+## the primary gate — see can_cast().
 var enabled: bool = false
 
 var cooldown_remaining: float = 0.0
@@ -29,34 +30,67 @@ func setup(map_ref: Node2D) -> void:
 	map = map_ref
 
 
-# --- Public API (inert until Track B) -----------------------------------
+func _process(delta: float) -> void:
+	if cooldown_remaining <= 0.0:
+		return
+	# Freeze the cooldown outside a round rather than letting it drain against
+	# the result screen. reset() clears it for the next round anyway; this just
+	# keeps the value honest if anything reads it in between.
+	if not _is_in_round():
+		return
 
-## Clears cooldowns and enables casting for a fresh round. Called from
-## level_controller._start_round(). B-1 fills this in.
+	cooldown_remaining = max(cooldown_remaining - delta, 0.0)
+	# Emitted every frame while cooling so a UI bar can animate, and once more
+	# at exactly 0 so the listener gets a definite "ready" edge rather than
+	# having to poll for it.
+	cooldown_changed.emit(cooldown_remaining, BOULDER_COOLDOWN)
+
+
+## Read live from round_state rather than cached, mirroring the rule
+## is_valid_placement() and round_ui._upgrades_allowed() both follow. A cached
+## copy would have to be invalidated on every path back to PRE_ROUND, and
+## start_new_round() is exactly such a path — it calls reset() while heading
+## *out* of a round, not into one.
+func _is_in_round() -> bool:
+	return map != null and map.round_state == map.RoundState.IN_ROUND
+
+
+# --- Public API ---------------------------------------------------------
+
+## Clears the cooldown for a fresh round. Called from _start_round() (entering
+## a round) and from start_new_round() (leaving one) — which is why it must not
+## be the thing that decides whether casting is allowed.
 func reset() -> void:
-	pass
+	enabled = true
+	cooldown_remaining = 0.0
+	cooldown_changed.emit(0.0, BOULDER_COOLDOWN)
 
 
-## Called with false from level_controller._end_round(). B-1 fills this in.
+## Called with false from level_controller._end_round().
 func set_enabled(value: bool) -> void:
 	enabled = value
 
 
-## B-1 fills this in.
 func can_cast() -> bool:
-	return false
+	return enabled and _is_in_round() and cooldown_remaining <= 0.0
 
 
 ## Drops a boulder at world_pos and starts the cooldown. Returns false with no
-## state change if the ability is disabled or still cooling down.
+## state change if the ability is disabled, out of round, or still cooling.
 ##
 ## Takes an explicit world position rather than reading the mouse, because
 ## get_global_mouse_position() is not reliably driven by input_simulate in this
 ## environment (CLAUDE.md, Gotchas) — calling this directly via execute_code is
 ## the only way this path can be verified.
-## B-1/B-2 fill this in.
 func cast_boulder(_world_pos: Vector2) -> bool:
-	return false
+	if not can_cast():
+		return false
+
+	# B-2 spawns the boulder entity here. The cooldown starts at cast, not at
+	# impact — the ~0.5s arc is travel time the player has already committed to.
+	cooldown_remaining = BOULDER_COOLDOWN
+	cooldown_changed.emit(cooldown_remaining, BOULDER_COOLDOWN)
+	return true
 
 
 ## Hold LMB to aim, release to drop. Forwarded from level_controller._input()'s
