@@ -144,20 +144,62 @@ func reset() -> void:
 
 
 ## One enemy of the current wave has been killed or has escaped. Forwarded from
-## level_controller.on_zombie_killed() / on_zombie_escaped().
-##
-## This seam is the entire reason W-2's counter split does not have to reopen
-## level_controller.gd. Until then level_controller keeps its own
-## zombies_to_resolve accounting and this is inert. W-2 fills this in.
+## level_controller.on_zombie_killed() / on_zombie_escaped(), which is the seam
+## that lets this land without reopening that file.
 func on_enemy_resolved() -> void:
-	pass
+	if phase != Phase.SPAWNING and phase != Phase.CLEARING:
+		return
+	if wave_remaining <= 0:
+		return
+
+	wave_remaining -= 1
+	if wave_remaining > 0:
+		return
+
+	_advance_after_wave()
 
 
-## Test hook: resolve the current wave immediately. Exists because playing five
-## full waves by hand after every tuning change is not a workable loop.
-## W-2 fills this in.
+## Test hook: resolve the current wave immediately, board and all. Exists
+## because playing five full waves by hand after every tuning change is not a
+## workable loop.
+##
+## Frees the live enemies rather than pretending they resolved — leaving them
+## alive would let their real deaths arrive later and decrement the NEXT wave's
+## counter, which is the one desync this design can actually suffer.
 func force_clear_wave() -> void:
-	pass
+	if phase != Phase.SPAWNING and phase != Phase.CLEARING:
+		return
+
+	_spawn_timer.stop()
+	_spawned_this_wave = _waves[current_wave - 1]["count"]
+	map._clear_all_zombies()
+	wave_remaining = 0
+	map.zombies_to_resolve = 0
+	_advance_after_wave()
+	# Real resolutions arrive through level_controller, which calls this right
+	# after forwarding to on_enemy_resolved(). Without it the hook advances
+	# waves but never ends the round — the shortcut would silently diverge from
+	# the path it is meant to stand in for.
+	map._check_round_complete()
+
+
+## A wave has been fully resolved: either the next one starts, or the round is
+## over.
+func _advance_after_wave() -> void:
+	wave_cleared.emit(current_wave)
+
+	if current_wave >= _waves.size():
+		phase = Phase.DONE
+		all_waves_complete.emit()
+		# Deliberately does NOT touch map.zombies_to_resolve, which is already
+		# 0 — so level_controller's own _check_round_complete(), running
+		# immediately after this returns, ends the round won through the exact
+		# path M1 already uses (gold-once ledger, save flush, round_ended).
+		# Re-implementing that here would risk the verified economy for nothing.
+		return
+
+	# W-3 inserts the breather here, between clearing and the next wave.
+	_start_wave(current_wave + 1)
 
 
 ## Ends the breather early. Also driven by the UI's Skip button.
@@ -174,6 +216,16 @@ func _start_wave(index: int) -> void:
 	wave_remaining = wave["count"]
 	_spawned_this_wave = 0
 	phase = Phase.SPAWNING
+
+	# Top level_controller's counter up for this wave. It decrements that
+	# counter per resolution exactly as it always has, and this overwrite
+	# re-syncs the two at every wave boundary — so they cannot drift apart
+	# even though both are being decremented on the same events.
+	#
+	# The important consequence: on the LAST wave nothing tops it up, so it
+	# reaches 0 naturally and _check_round_complete() ends the round won
+	# without this manager needing to reach into _end_round() at all.
+	map.zombies_to_resolve = wave["count"]
 
 	wave_started.emit(current_wave, _waves.size(), wave["count"])
 
