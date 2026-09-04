@@ -4,7 +4,7 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: playable core loop (M1 complete + tower editing).** Pathfinding, swarm AI, tower
+**Status: playable core loop (M1 + tower editing + `783b9d2` restructure).** Pathfinding, swarm AI, tower
 building/removal/moving, the silver/gold economy, permanent upgrades, round win/lose and
 `user://` persistence all work — you can place towers, rearrange them, kill for silver, clear a
 level for gold, buy upgrades, and replay.
@@ -24,13 +24,13 @@ That's alpha onward — see Build order.
 | Meta-progression | **Yes** — permanent upgrades, `user://` save. Currencies are silver + gold; there is no "souls". |
 | In-round play | **Cooldown abilities.** Towers are pre-placed and auto-fire; abilities are the only live input. |
 
-**The `game/asserts/` art is shelved.** There are ~148 PNGs of classroom / school-horror art
-(a 2D classroom pack, a "limp" character, a school interior) bought in Aug 2026. They do **not**
-match the medieval direction and are unused. Every sprite in the running game is a 100–300 byte
-placeholder. Don't wire the classroom art into anything; don't delete it either.
+**The classroom / school-horror art has been deleted** (`783b9d2`) — ~148 PNGs, 106MB, wrong
+theme. It is still in git history if ever needed. Every sprite in the running game is a
+100–300 byte placeholder awaiting the commissioned medieval art (a beta deliverable — see
+`beta_plan.md`).
 
-`player.gd`, `player.tscn` and `test.tscn` are **orphaned by decision**, not by accident.
-They're slated for removal — don't build on them.
+`player.gd`, `player.tscn`, `test.tscn`, `tile_map.tscn`, `oil_trap.tscn` and `build_ui.gd`
+were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
 
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
 [final_plan.md](final_plan.md)** — three release stages, 40/40/20 of remaining work. See Build
@@ -77,15 +77,15 @@ Two consequences that drive tuning:
 
 The only expensive-to-retrofit decision in the whole design. Keep these in separate containers:
 
-| Persistent (`user://` save, `PlayerData`) | Round-scoped (discarded, `map1`/`base_health`) |
+| Persistent (`user://` save, `PlayerData`) | Round-scoped (discarded, `level_controller`/`base_health`) |
 |---|---|
 | silver, gold | `round_state`, `zombies_to_resolve` |
 | upgrade level per tower type | lives (`base_health.lives`) |
-| unlocked tower types | placed tower instances (`map1.towers_by_cell`) |
+| unlocked tower types | placed tower instances (`towers_by_cell`) |
 | levels already cleared (gold-once ledger) | current wave (alpha — not built yet) |
 | placement slot count | ability cooldowns (alpha — not built yet) |
 
-This split is implemented, not just planned — `base_health.gd` and `map1.gd`'s round-lifecycle
+This split is implemented, not just planned — `base_health.gd` and `level_controller.gd`'s round-lifecycle
 fields never write to `PlayerData`, and nothing in `PlayerData`/`TowerStats` reads round state.
 
 ### When the save actually gets written
@@ -95,7 +95,7 @@ three checkpoints, via `save_if_dirty()`:
 
 | Checkpoint | Where | Why there |
 |---|---|---|
-| Round end (win *or* loss) | `map1._end_round()` | One write per round instead of one per kill |
+| Round end (win *or* loss) | `level_controller._end_round()` | One write per round instead of one per kill |
 | Upgrade purchase | `TowerStats.try_upgrade()` | Deliberate user action, low frequency, flush immediately |
 | Quit / tree exit | `PlayerData._notification()` | Safety net for `WM_CLOSE_REQUEST` and `EXIT_TREE` |
 
@@ -139,12 +139,24 @@ zombie game prototype 1/
 ├── rules_for_godot_mcp.md   ← MCP toolkit reference
 ├── .mcp.json                ← MCP config (see MCP setup below)
 └── game/                    ← the Godot project (project.godot lives HERE, not at root)
-    ├── scenes/              ← 15 .tscn
-    ├── scripts/             ← 16 .gd — 4 autoload-or-round-owned (player_data, tower_stats,
-    │                           base_health, round_ui) added for M1, none are scene-attached
-    ├── asserts/             ← art (sic — typo is load-bearing, paths reference it)
+    ├── autoload/            ← player_data.gd, tower_stats.gd (registered in project.godot)
+    ├── entities/            ← COLOCATED: each thing owns a folder with its scene+script+art
+    │   ├── towers/archer/       archer_tower.tscn/.gd, archer.tscn/.gd, archer*.png
+    │   ├── towers/wizard/       wizard_tower.tscn, wizard.tscn/.gd, wizard*.png
+    │   ├── enemies/zombie/      zombie.tscn/.gd        (→ goblin/ at the alpha rename)
+    │   └── projectiles/         arrow/, fire/
+    ├── levels/              ← level_01.tscn + tilesets/my_tiles.tscn
+    ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd
+    ├── ui/                  ← build_sidebar/, ghost_tower/, round_ui.gd, fps_counter.gd
+    ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
+    ├── testbed/             ← clean_area.tscn/.gd (quarantined harness)
     └── addons/godot_mcp_toolkit/   ← 277 files, vendored; not your code
 ```
+
+**Colocation is the convention** (restructured `783b9d2`). A new tower/enemy gets its own folder
+under `entities/` holding its scene, script and art together — don't scatter them into parallel
+`scenes/`+`scripts/` trees. `assets/` is for genuinely shared things only. The artist brief is
+literally "replace the PNG in each entity folder."
 
 The repo root is **one level above** the Godot project. `res://` maps to `game/`.
 
@@ -173,7 +185,7 @@ Verify a connection with `editor_get_console` — you want to see
 ## Architecture
 
 ### Flow-field pathfinding
-`map1.gd` runs a BFS out from `EndPoint` across every non-wall cell, then converts the cost
+`level_controller.gd` runs a BFS out from `EndPoint` across every non-wall cell, then converts the cost
 field into one direction vector per cell. Enemies just read their cell's vector.
 
 - **Drawn tiles are walls.** `walls_dict` is built from `my_tiles.get_used_cells(0)`.
@@ -188,7 +200,7 @@ movement anywhere** — no `move_and_slide`, no rigid bodies. Wall collision is 
 `map.is_wall()` point test with per-axis sliding.
 
 ### Separation (the perf-critical path)
-`map1.gd` rebuilds a **spatial grid** every physics frame: `zombie_grid` maps a 32px cell to a
+`level_controller.gd` rebuilds a **spatial grid** every physics frame: `zombie_grid` maps a 32px cell to a
 plain `Array` of enemy *positions*, with `zombie_grid_nodes` holding the parallel node refs for
 splash damage. Enemies read the 3×3 block around themselves for push-apart.
 
@@ -232,7 +244,7 @@ conflating it with `range` (which governs target *acquisition* only).
 
 ### Round lifecycle
 
-`map1.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`) and
+`level_controller.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`) and
 is the level controller — there is no separate `wave_manager.gd` yet (that arrives with
 progressive waves in alpha; the current build is deliberately single-wave).
 
@@ -281,7 +293,7 @@ progressive waves in alpha; the current build is deliberately single-wave).
   redundant — a disabled Button still runs its `pressed` handler if something emits the signal
   directly (which `input_simulate`'s `click_node` does, and which silently defeated the first
   version of this test).
-- **Gold-once is enforced by `PlayerData.award_level_gold`**, not by `map1` — `_end_round(true)`
+- **Gold-once is enforced by `PlayerData.award_level_gold`**, not by `level_controller` — `_end_round(true)`
   calls it and only forwards the *actual* amount paid (0 on a replay) through `round_ended`'s
   `gold_awarded` param. Never infer "gold was paid" from `won == true` alone.
 
@@ -300,7 +312,7 @@ auto-generated names like `@Button@42`, gettable at runtime via
 - Comments explain *why*, not *what* — especially around the perf-critical separation code.
 - Type-annotate locals in hot loops. `:=` inference fails on values read out of untyped
   containers, which is a compile error, not a warning.
-- Debug output goes through `print()` gated on an export flag (`map1.gd` has `debug_logging`).
+- Debug output goes through `print()` gated on an export flag (`level_controller.gd` has `debug_logging`).
   **Never `FileAccess.open("res://…", WRITE)`** — see Known issues #1.
 - Prefer MCP `node_set_property` + `editor_save_scene` over hand-editing `.tscn`.
 
@@ -308,7 +320,7 @@ auto-generated names like `@Button@42`, gettable at runtime via
 
 ## Performance: the open problem
 
-Measured on this machine, `map1`, enemies spawned instantly:
+Measured on this machine, `level_01`, enemies spawned instantly:
 
 | Enemies | FPS (before fixes) | FPS (now) |
 |---|---|---|
@@ -336,7 +348,7 @@ drops to 2–4.
 - Rendering and the physics broadphase (60 FPS with `_physics_process` disabled)
 
 **Recommended next attempt:** stop giving every enemy its own `_physics_process`. Move the
-whole horde into a single manager loop on `map1` that updates all enemies in one tight pass.
+whole horde into a single manager loop on `level_controller` that updates all enemies in one tight pass.
 That removes 600 per-node script invocations and 600 sets of cross-object `map.` dispatches
 per frame, which is the largest remaining structural cost. If that isn't enough, the horde
 needs to leave GDScript entirely (MultiMesh + a compute-style update, or GDExtension).
@@ -370,20 +382,17 @@ Still open, roughly by value:
 4. `place_tower` marks exactly one cell occupied, but the wizard sprite is 9× scale — towers
    visually overlap.
 5. `TileMap` is deprecated as of Godot 4.3; this project targets 4.6. Migrate to `TileMapLayer`.
-6. `map1.tscn` has a vestigial empty `TileMap` node alongside the real `my_tiles`.
-7. `build_ui.gd` is a dead one-shot `@tool SceneTree` generator; its output is superseded by
-   `build_sidebar.gd`, which builds the UI at runtime.
-8. Enemy `z_index = 10` draws enemies over towers.
-9. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
-10. `asserts/` is a typo for `assets/` — cosmetic, but every resource path depends on it.
-11. `.git` is ~107 MB for a small project; the deleted `.docx` files and asset-pack binaries are
-    baked into history.
-12. `archer.tscn` and `wizard.tscn` carry stale scene-level property overrides (`damage`,
-    `wizard_radius`, `rate_of_fire`, `fire_damage_radius`) left over from the pre-`TowerStats`
-    exports. Confirmed harmless — Godot silently no-ops setting a property that no longer
-    exists on the attached script, verified against a clean console log across a full
-    playtest — but worth stripping from the `.tscn` text next time either file is open, so a
-    future reader doesn't mistake them for live data.
+6. Enemy `z_index = 10` draws enemies over towers.
+7. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
+8. `.git` is ~107 MB even though the working tree is 2.3 MB — the deleted asset packs are still
+   in history. A commit can't shrink this; only a history rewrite can. **Deliberately deferred**
+   — it costs nothing day-to-day and only matters the day someone else first clones the repo.
+   Commands are in the session notes; it drops `origin` and needs a force-push of all branches.
+9. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
+   `archer_tower.gd` repositions the archer after `add_child`. Harmless, cosmetic.
+
+**Fixed in the `783b9d2` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
+`asserts/` typo (now `assets/`), and the stale `damage`/`wizard_radius` scene overrides.
 
 ---
 
@@ -449,7 +458,11 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 
 ## Gotchas
 
-- The main scene is `map1.tscn` (`uid://c4tocub30g0w`). `clean_area.tscn` is a stripped-down
+- **The scene file is `levels/level_01.tscn` but its ROOT NODE is still named `map1`** — renaming
+  a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
+  `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the
+  mismatch.
+- The main scene is `levels/level_01.tscn` (`uid://c4tocub30g0w`). `testbed/clean_area.tscn` is a stripped-down
   test harness that implements the same `get_flow_direction` / `is_wall` contract — if you
   change that contract, update it too, or its enemies break.
 - `zombie.gd` reaches its map via `get_parent()` and reads `map.end_point` directly. Enemies
