@@ -66,6 +66,7 @@ var map: Node2D = null
 var _waves: Array = []
 var _spawned_this_wave: int = 0
 var _spawn_timer: Timer = null
+var _breather_timer: Timer = null
 
 
 func _ready() -> void:
@@ -80,6 +81,12 @@ func _ready() -> void:
 	_spawn_timer.one_shot = false
 	_spawn_timer.timeout.connect(_on_spawn_tick)
 	add_child(_spawn_timer)
+
+	_breather_timer = Timer.new()
+	_breather_timer.name = "BreatherTimer"
+	_breather_timer.one_shot = true
+	_breather_timer.timeout.connect(_on_breather_done)
+	add_child(_breather_timer)
 
 
 func setup(map_ref: Node2D) -> void:
@@ -130,6 +137,10 @@ func begin() -> void:
 func abort() -> void:
 	if _spawn_timer != null:
 		_spawn_timer.stop()
+	# The breather timer too: a round lost during the gap would otherwise
+	# start the next wave onto a board that has already resolved.
+	if _breather_timer != null:
+		_breather_timer.stop()
 	phase = Phase.IDLE
 
 
@@ -198,14 +209,57 @@ func _advance_after_wave() -> void:
 		# Re-implementing that here would risk the verified economy for nothing.
 		return
 
-	# W-3 inserts the breather here, between clearing and the next wave.
+	_begin_breather()
+
+
+## The gap between waves. Not a build phase: the round stays IN_ROUND, so
+## placement and upgrades remain locked with no extra code.
+func _begin_breather() -> void:
+	# Reserve the NEXT wave's enemies on level_controller's counter BEFORE the
+	# gap opens. Without this the counter sits at 0 for the whole breather —
+	# and _check_round_complete() runs immediately after this returns, on the
+	# very resolution that cleared the wave, so the round would be declared won
+	# after wave 1. That is the same "victory after wave 1" failure W-2 exists
+	# to prevent, re-entering through the gap the breather creates.
+	#
+	# Reserving before the enemies exist is not a new idea here: _start_round()
+	# always set zombies_to_resolve before a single one had spawned.
+	map.zombies_to_resolve = _waves[current_wave]["count"]
+
+	# A zero-length breather is a valid tuning choice, and Timer rejects a
+	# wait_time of 0 — go straight on instead.
+	if breather_seconds <= 0.0:
+		_start_wave(current_wave + 1)
+		return
+
+	phase = Phase.BREATHER
+	breather_started.emit(breather_seconds)
+	_breather_timer.wait_time = breather_seconds
+	_breather_timer.start()
+
+
+func _on_breather_done() -> void:
+	# abort() stops the timer, but a timeout already in flight would otherwise
+	# start a wave into a round that has ended.
+	if phase != Phase.BREATHER:
+		return
 	_start_wave(current_wave + 1)
 
 
-## Ends the breather early. Also driven by the UI's Skip button.
-## W-3 fills this in.
+## Seconds left in the breather, for the HUD. 0 when not in one.
+func get_breather_remaining() -> float:
+	if phase != Phase.BREATHER or _breather_timer == null:
+		return 0.0
+	return _breather_timer.time_left
+
+
+## Ends the breather early. Driven by the UI's Skip button — a player who does
+## not want to wait should not have to.
 func skip_breather() -> void:
-	pass
+	if phase != Phase.BREATHER:
+		return
+	_breather_timer.stop()
+	_start_wave(current_wave + 1)
 
 
 # --- Spawning -----------------------------------------------------------
