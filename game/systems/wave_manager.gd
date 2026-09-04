@@ -119,6 +119,12 @@ func _build_waves() -> Array:
 ## Starts wave 1. Called from level_controller._start_round() once W-5 lands;
 ## until then, drive it directly to test.
 func begin() -> void:
+	# Always start from a known state. Without this, a second begin() while a
+	# wave is already running would rebuild _waves and reset the counters
+	# underneath a live spawner — leaving two waves' worth of bookkeeping
+	# fighting over one board.
+	reset()
+
 	_waves = _build_waves()
 	if _waves.is_empty():
 		phase = Phase.DONE
@@ -145,13 +151,21 @@ func abort() -> void:
 
 
 ## Returns to wave 0 / IDLE for a fresh round. Called from
-## level_controller.start_new_round(). W-4 finishes this.
+## level_controller.start_new_round(), and by begin() so a round always starts
+## from a known state.
 func reset() -> void:
 	abort()
 	current_wave = 0
 	wave_remaining = 0
 	_spawned_this_wave = 0
 	_waves = []
+
+	# A round lost mid-wave leaves level_controller's counter holding whatever
+	# was still unresolved. Nothing reads it before the next wave overwrites
+	# it, but leaving a stale count sitting in round-scoped state is how the
+	# next reader of it gets quietly misled.
+	if map != null:
+		map.zombies_to_resolve = 0
 
 
 ## One enemy of the current wave has been killed or has escaped. Forwarded from

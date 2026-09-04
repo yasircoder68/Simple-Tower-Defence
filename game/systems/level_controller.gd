@@ -18,11 +18,6 @@ const SEPARATION_RADIUS := 32.0
 @export var wave_count: int = 5
 @export var difficulty_scale: float = 1.0
 
-## The pre-wave flat spawn. Still live: A1's Step 0 is purely additive, and
-## these die at the W-5 handover once wave_manager actually spawns. Setting
-## zombie_count to 0 makes this path inert while Track W is being developed.
-@export var zombie_count: int = 50
-@export var spawn_interval: float = 0.05
 @export var debug_logging: bool = false
 
 @onready var tile_map: TileMap = $my_tiles
@@ -198,7 +193,9 @@ func _start_round() -> void:
 	round_state = RoundState.IN_ROUND
 	base_health.reset()
 	ability_manager.reset()
-	zombies_to_resolve = zombie_count
+	# zombies_to_resolve is no longer seeded here: wave_manager sets it per
+	# wave, topping it up at each wave boundary so this controller's existing
+	# decrement-and-check path still decides when the round is won.
 	silver_earned_this_round = 0
 
 	# Towers persist between rounds now, so any upgrade bought since the last
@@ -207,7 +204,7 @@ func _start_round() -> void:
 	get_tree().call_group("tower_unit", "refresh_stats")
 
 	round_started.emit()
-	spawn_zombies()
+	wave_manager.begin()
 
 
 ## Called by round_ui's "Play Again" button after a win or loss.
@@ -594,22 +591,3 @@ func is_wall(world_pos: Vector2) -> bool:
 	var local_pos = tile_map.to_local(world_pos)
 	var cell = tile_map.local_to_map(local_pos)
 	return walls_dict.has(cell)
-
-
-func spawn_zombies() -> void:
-	var zombie_scene = preload("res://entities/enemies/zombie/zombie.tscn")
-	for i in range(zombie_count):
-		# The round can end mid-spawn (all lives lost to early escapees) —
-		# stop feeding zombies onto a board that already resolved.
-		if round_state != RoundState.IN_ROUND:
-			return
-
-		var zombie = zombie_scene.instantiate()
-
-		var random_angle = randf() * TAU
-		var random_radius = randf_range(0.0, 40.0)
-		add_child(zombie)
-		zombie.global_position = start_point.global_position + Vector2(cos(random_angle), sin(random_angle)) * random_radius
-
-		if spawn_interval > 0.0:
-			await get_tree().create_timer(spawn_interval).timeout
