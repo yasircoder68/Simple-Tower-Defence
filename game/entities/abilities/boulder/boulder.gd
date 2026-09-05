@@ -62,4 +62,11 @@ func _impact() -> void:
 func _splash_candidates() -> Array:
 	if map and map.has_method("get_zombies_in_radius"):
 		return map.get_zombies_in_radius(global_position, RADIUS)
-	return get_tree().get_nodes_in_group("zombie")
+
+	# Falling back is legitimate only on a map with no spatial grid — the
+	# testbed, which is not in the "map" group. On the REAL map it means the
+	# query name drifted, and the fallback quietly scans every enemy in the
+	# scene: a perf cliff dressed as working code. Say so.
+	if map != null and map.is_in_group("map"):
+		push_error("boulder: map has no get_zombies_in_radius() — falling back to a full scene scan. The query name has drifted.")
+	return get_tree().get_nodes_in_group(Enemy.GROUP)

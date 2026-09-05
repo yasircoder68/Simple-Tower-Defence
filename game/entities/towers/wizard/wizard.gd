@@ -48,7 +48,7 @@ func _on_timer_timeout():
 	var targets = get_overlapping_areas()
 	var zombies = []
 	for t in targets:
-		if t.is_in_group("zombie"):
+		if t.is_in_group(Enemy.GROUP):
 			zombies.append(t)
 
 	if zombies.size() > 0:

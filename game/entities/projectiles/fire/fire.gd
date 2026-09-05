@@ -32,7 +32,7 @@ func _physics_process(delta):
 func _on_area_entered(area):
 	if hit:
 		return
-	if area.is_in_group("zombie"):
+	if area.is_in_group(Enemy.GROUP):
 		hit = true
 		# Splash everything inside aoe_radius. The candidate list comes from the
 		# map's spatial grid so this stays O(nearby) instead of scanning every
@@ -51,4 +51,9 @@ func _on_area_entered(area):
 func _splash_candidates() -> Array:
 	if map and map.has_method("get_zombies_in_radius"):
 		return map.get_zombies_in_radius(global_position, aoe_radius)
-	return get_tree().get_nodes_in_group("zombie")
+
+	# See boulder.gd: a fallback on the real map means the query name drifted,
+	# and quietly degrades to a full scene scan instead of erroring.
+	if map != null and map.is_in_group("map"):
+		push_error("fire: map has no get_zombies_in_radius() — falling back to a full scene scan. The query name has drifted.")
+	return get_tree().get_nodes_in_group(Enemy.GROUP)

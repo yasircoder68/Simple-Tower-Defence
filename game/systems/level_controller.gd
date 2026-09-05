@@ -86,6 +86,7 @@ var round_ui: CanvasLayer = null
 
 func _ready() -> void:
 	add_to_group("map")
+	_assert_enemy_contract()
 	generate_flow_field()
 
 	# Managers are constructed before round_ui because round_ui connects to
@@ -119,6 +120,25 @@ func _ready() -> void:
 	round_ui.setup(self)
 
 
+## Fails at game start instead of at the first kill of the first round.
+##
+## Every member below is reached by NAME from another file — Enemy's round
+## contract, and the splash query used by fire.gd and boulder.gd. Renaming one
+## without its caller is silent: the has_method() guard simply returns false and
+## kills stop scoring. This turns that into a startup error.
+func _assert_enemy_contract() -> void:
+	var required := Enemy.ROUND_CONTRACT + ["get_zombies_in_radius"]
+	var missing: Array = []
+	for member in required:
+		if not has_method(member):
+			missing.append(member)
+
+	if not missing.is_empty():
+		push_error("level_controller is missing enemy-contract members %s — enemies will not score. A rename has drifted." % [missing])
+	elif not ("zombie_grid" in self):
+		push_error("level_controller has no zombie_grid — separation will be silently disabled for every enemy.")
+
+
 func _physics_process(_delta: float) -> void:
 	_rebuild_zombie_grid()
 
@@ -131,7 +151,7 @@ func _physics_process(_delta: float) -> void:
 func _rebuild_zombie_grid() -> void:
 	zombie_grid.clear()
 	zombie_grid_nodes.clear()
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_tree().get_nodes_in_group(Enemy.GROUP):
 		# queue_free() doesn't leave the group until end of frame, so a dead
 		# zombie would otherwise be indexed and handed to splash queries.
 		if not is_instance_valid(z) or z.is_queued_for_deletion():
@@ -292,7 +312,7 @@ func _end_round(won: bool) -> void:
 
 
 func _clear_all_zombies() -> void:
-	for z in get_tree().get_nodes_in_group("zombie"):
+	for z in get_tree().get_nodes_in_group(Enemy.GROUP):
 		z.queue_free()
 
 

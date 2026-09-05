@@ -1,4 +1,35 @@
+class_name Enemy
 extends Area2D
+
+## The enemy base. Still living in a file called zombie.gd until A2's R-2
+## entity rename — the CLASS is already the shared base, the FILE name is what
+## is stale. `class_name` is brought forward from E-1 because it is what lets
+## the six consumer files say `Enemy.GROUP` instead of a bare "zombie" literal,
+## which is the whole point of R-0.
+##
+## Enemy scripts must never name LevelController: the map is duck-typed through
+## `map`, deliberately, so that `class_name Enemy` here and a class_name on the
+## controller could never form a cyclic reference.
+
+## The group every enemy joins. Single definition, referenced by archer, wizard,
+## arrow, fire, boulder and level_controller.
+##
+## Joined in code, NOT declared in the .tscn. It used to be scene data only —
+## `groups=["zombie"]` in zombie.tscn with no add_to_group() anywhere — which
+## meant a new enemy scene could silently forget it and be invisible to every
+## tower, the spatial grid and every AoE, with no error at all. Nine string
+## literals collapse to this one const; a typo in the const NAME is now a parse
+## error instead of a silent miss.
+##
+## Still "zombie" here: R-0 changes nothing observable, so that R-1's rename has
+## a meaningful diff to verify. Once every consumer reads this const the value
+## is a private detail, and R-1 flips it in one place.
+const GROUP := "zombie"
+
+## Map-side members an enemy needs to score. Either the map implements ALL of
+## them or NONE — testbed/clean_area.tscn implements none, which is why this is
+## probed rather than required.
+const ROUND_CONTRACT := ["on_zombie_killed", "on_zombie_escaped"]
 
 const SEPARATION_RADIUS := 32.0
 const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
@@ -23,10 +54,43 @@ var hp: int = 10
 # map.get() instead costs a dictionary copy per zombie per frame.
 var _grid: Dictionary = {}
 
+## Answered once at spawn instead of at every call site. See _probe_round_contract().
+var _has_round_contract: bool = false
+
 
 func _ready() -> void:
+	add_to_group(GROUP)
+	_has_round_contract = _probe_round_contract()
+
 	if "zombie_grid" in map:
 		_grid = map.zombie_grid
+
+
+## Asks the whole contract at once, rather than each call site guarding itself.
+##
+## The old design called has_method() independently in _die() and _escape(), so
+## a half-finished rename produced a PARTIALLY working game: kills still awarded
+## silver while escapes silently cost nothing, with no error anywhere. Probing
+## together collapses that into two honest outcomes — everything routes, or
+## nothing does and you are told exactly what is missing.
+func _probe_round_contract() -> bool:
+	var missing: Array = []
+	for member in ROUND_CONTRACT:
+		if not map.has_method(member):
+			missing.append(member)
+
+	if missing.is_empty():
+		return true
+
+	if missing.size() == ROUND_CONTRACT.size():
+		# A map with no round lifecycle at all — testbed/clean_area.tscn.
+		# Legitimate: enemies there just despawn without scoring.
+		return false
+
+	# Some but not all. That is always a bug and never a design — it is exactly
+	# the silent partial failure this probe exists to make impossible.
+	push_error("Enemy: map '%s' implements only part of the round contract (missing %s). Kills or escapes would silently do nothing." % [map.name, missing])
+	return false
 
 func _physics_process(delta: float) -> void:
 	if not map.has_method("get_flow_direction"):
@@ -118,17 +182,17 @@ func take_damage(amount: int) -> void:
 
 
 ## Killed by a tower. Awards silver via the round controller, then despawns.
-## has_method-guarded so clean_area.tscn's stripped-down map (no round
-## lifecycle) still works — a killed zombie there just despawns as before.
+## Gated on the contract probe rather than a local has_method(), so this and
+## _escape() can never disagree about whether the map is scoring.
 func _die() -> void:
-	if map.has_method("on_zombie_killed"):
+	if _has_round_contract:
 		map.on_zombie_killed(silver_reward)
 	queue_free()
 
 
 ## Reached the end point unharmed. Costs the round a life instead of a silent
-## despawn. Same has_method guard as _die() for clean_area.tscn's benefit.
+## despawn. Same gate as _die() — deliberately the same bool, not a second probe.
 func _escape() -> void:
-	if map.has_method("on_zombie_escaped"):
+	if _has_round_contract:
 		map.on_zombie_escaped()
 	queue_free()

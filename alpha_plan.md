@@ -57,12 +57,21 @@ caveat), and an itch.io build.
 
 ### A2 — enemy variety · 8%
 
+**Full work order: [a2_plan.md](a2_plan.md).**
+
 - Several enemy types with genuinely different roles: fodder in huge numbers, a fast rusher that
-  punishes slow-firing towers, a heavy that must not be allowed through.
-- The approved rename from zombies to the medieval goblin horde.
-- A shared foundation for enemies so adding the next one is cheap.
+  punishes slow-firing towers, a heavy that must not be allowed through. **Goblin, Skeleton,
+  Ogre** — the Troll boss is deliberately deferred past A2 (see the work order).
+- The approved rename from zombies to the medieval goblin horde — split into a *machinery*
+  rename (`zombie_*` → `enemy_*`, since the grid and counters mean "any enemy") and an *entity*
+  rename (zombie → goblin).
+- A shared foundation for enemies so adding the next one is cheap: `class_name Enemy` plus a
+  stat registry, so a new type is a `.tscn` and a dict entry.
 - **The three remaining abilities** — Rain of Arrows, Divine Smite, Dragon Fire — moved here
   from A1. They land alongside the enemies that give them a job.
+
+A2 also closes two debts A1 left open: the Ogre's 80 HP makes the archer's damage upgrade track
+meaningful (Known issue 1), and gives Divine Smite a target worth a 60s cooldown.
 
 ### A3 — big battles · 12%
 
