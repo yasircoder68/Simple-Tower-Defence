@@ -46,14 +46,14 @@ func refresh_stats() -> void:
 
 func _on_timer_timeout():
 	var targets = get_overlapping_areas()
-	var zombies = []
+	var enemies = []
 	for t in targets:
 		if t.is_in_group(Enemy.GROUP):
-			zombies.append(t)
+			enemies.append(t)
 
-	if zombies.size() > 0:
+	if enemies.size() > 0:
 		# Pick a random zombie so multiple wizards don't shoot the exact same target
-		var target = zombies[randi() % zombies.size()]
+		var target = enemies[randi() % enemies.size()]
 		var fire_scene = preload("res://entities/projectiles/fire/fire.tscn")
 		var fire = fire_scene.instantiate()
 		fire.target = target

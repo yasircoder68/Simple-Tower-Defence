@@ -1,6 +1,61 @@
 # A2 — "Enemy Variety" — Implementation Work Order
 
-**Status: planned, not started.**
+**Status: in progress — step 0 (R-0) shipped and verified. Steps 1–11 remain.**
+
+Progress against the Sequencing table below:
+
+| Step | State |
+|---|---|
+| 0 · R-0 harden the contract | ✅ **done and verified** — see *R-0: what actually shipped* |
+| 1–2 · renames | not started |
+| 3–7 · enemy track | not started |
+| 8–10 · ability track | not started |
+| 11 · tune + docs | not started |
+
+---
+
+## R-0: what actually shipped
+
+Three changes, all under the old names, all additive:
+
+1. **Group membership moved from scene data into code.** `zombie.tscn` no longer declares
+   `groups=["zombie"]`; `Enemy._ready()` calls `add_to_group(GROUP)`. Nine string literals across
+   six files collapsed to `Enemy.GROUP` — a typo in the const *name* is now a parse error rather
+   than a silent miss.
+2. **Two independent `has_method()` guards → one cached probe.** `_die()` and `_escape()` can no
+   longer disagree about whether the map is scoring; a partial contract `push_error`s naming
+   exactly what is missing.
+3. **Map-side self-check** in `level_controller._ready()`, plus loud fallbacks in `boulder.gd` and
+   `fire.gd` when the splash query drifts — discriminated by the `"map"` group, which the testbed
+   deliberately isn't in, so the testbed still falls back silently and correctly.
+
+**`class_name Enemy` was brought forward from E-1.** It is what lets six consumer files say
+`Enemy.GROUP`, which is the entire point of R-0. No cycle risk: enemies duck-type the map through
+`map` and never name a controller class. The class now lives in a file still called `zombie.gd` —
+the CLASS is already the shared base, the FILE name is what R-2 fixes.
+
+**The group value stays `"zombie"` until R-1.** R-0 must change nothing observable so R-1's diff
+is meaningful. Once every consumer reads the const, the value is a private detail.
+
+### The net was verified by breaking it
+
+Per this plan's own rule — a net you haven't fallen into is not a net. `on_zombie_escaped` was
+deliberately renamed to `on_zombie_escaped_TYPO`; **both** guards fired naming the exact missing
+member (the map-side check at startup, the enemy-side probe per spawn). Reverted, re-ran, clean.
+
+### A verification gap this exposed, affecting A1's record
+
+Finding those errors required looking somewhere this project had not been looking:
+**runtime `push_error` goes to `debugger_get_log`, NOT `editor_get_console`.** On Godot 4.5+ the
+latter shows the *editor's* console — it catches parse and load errors (it did surface W-5's), but
+not a running game's runtime errors.
+
+Every "zero errors" claim made during A1 was read from the wrong stream. Re-verified since: a full
+408-enemy round on the current build, with two boulders impacting one cluster in a single frame,
+produces zero errors in the game log. **A1's conclusions stand — but they stood on weaker evidence
+than was stated at the time.**
+
+---
 
 ## Context
 
@@ -260,10 +315,10 @@ Twelve commits. **Every one leaves the game launchable and playable.**
 
 | # | Commit | Files | Done when |
 |---|---|---|---|
-| 0 | **R-0 · Harden the contract.** Group joined in code via one const; five guards → one cached probe + partial-contract `push_error`; map-side self-check under `debug_logging`. **No rename.** | `zombie.gd`, `zombie.tscn`, `boulder.gd`, `fire.gd`, `arrow.gd`, `archer.gd`, `wizard.gd`, `level_controller.gd` | Plays identically. **Then deliberately misspell a contract name, confirm a loud error, revert.** Verify the net before falling into it. |
+| 0 | ✅ **R-0 · Harden the contract.** Group joined in code via one const; guards → one cached probe + partial-contract `push_error`; map-side self-check. **No rename.** | `zombie.gd`, `zombie.tscn`, `boulder.gd`, `fire.gd`, `arrow.gd`, `archer.gd`, `wizard.gd`, `level_controller.gd` | ✅ Plays identically; net verified by deliberately breaking it. Self-check is **unconditional**, not gated on `debug_logging` as originally specced — a drifted contract should be loud in every build, and it costs one `has_method()` loop at startup. |
 | 1 | **R-1 · Machinery rename** → `enemy_*`, group `"enemy"`. Mechanical. | same 12 files | Grep for machinery names returns 0. Full round **on level_01, not the testbed**, specifically exercising the **escape** path (no towers, watch lives drain). |
 | 2 | **R-2 · Entity rename** → goblin. Folder, files, node name, path strings, testbed exports. | `entities/enemies/goblin/*`, `wave_manager.gd`, `clean_area.gd/.tscn` | `grep -ri zombie game/ --exclude-dir=addons` returns 0. Round identical; testbed launches. |
-| 3 | **E-1 · Enemy base + registry, goblin only.** `class_name Enemy`, `enemy_types.gd`, stats at `_ready()`, new flags at defaults, hooks empty, `SEPARATION_RADIUS` single-sourced. | `enemy.gd`, `enemy_types.gd`, `goblin.tscn`, `level_controller.gd` | A round is **numerically identical**: same result, comparable lives, 60 FPS at peak. Goblin resolves to speed **100**, hp 10, silver 2. |
+| 3 | **E-1 · Enemy base + registry, goblin only.** `enemy_types.gd`, stats resolved at `_ready()`, new flags at defaults, hooks empty, `SEPARATION_RADIUS` single-sourced. (`class_name Enemy` already landed in R-0 — it was the enabler for `Enemy.GROUP`.) | `enemy.gd`, `enemy_types.gd`, `goblin.tscn`, `level_controller.gd` | A round is **numerically identical**: same result, comparable lives, 60 FPS at peak. Goblin resolves to speed **100**, hp 10, silver 2. |
 | 4 | **E-2 · Life-cost channel.** `on_enemy_escaped(life_cost := 1)`. Purely additive. | `enemy.gd`, `level_controller.gd` | `life_cost = 3` on a live goblin costs 3 lives **and decrements `enemies_to_resolve` by exactly 1**. |
 | 5 | **E-3 · Wave composition.** `groups`, derived `count`, spawn plan array. Still 100% goblin. | `wave_manager.gd` | Totals match pre-change exactly (408 at scale 1.6). `count == plan.size()` asserted. |
 | 6 | **E-4 · Skeleton.** Registry entry, `.tscn`, `ignore_separation`, pack runs. Waves 2+. | `enemy_types.gd`, `skeleton.tscn`, `wave_manager.gd` | Skeletons visibly slide through the crowd and reach the choke first. FPS holds. |

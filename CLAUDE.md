@@ -32,6 +32,9 @@ theme. It is still in git history if ever needed. Every sprite in the running ga
 `player.gd`, `player.tscn`, `test.tscn`, `tile_map.tscn`, `oil_trap.tscn` and `build_ui.gd`
 were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
 
+**In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
+rename, and the three remaining abilities. Step 0 shipped; see that file for progress.
+
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
 [final_plan.md](final_plan.md)** — three release stages, 40/40/20 of remaining work. See Build
 order below.
@@ -244,6 +247,31 @@ Wizard's AoE splash radius (`AOE_RADIUS`, 100px) is a separate constant in `wiza
 part of `TowerStats` — it's not one of the three upgrade tracks the player buys. If splash
 size becomes upgradeable later, add it to `TowerStats` as a fourth track rather than
 conflating it with `range` (which governs target *acquisition* only).
+
+### The enemy contract (A2 R-0)
+
+`zombie.gd` declares **`class_name Enemy`** — the class is already the shared enemy base; only the
+file name is stale until A2's R-2 rename. Two things live on it that the rest of the game depends
+on:
+
+- **`Enemy.GROUP`** — the group every enemy joins, **in code**, via `add_to_group(GROUP)` in
+  `_ready()`. It used to be scene data only (`groups=["zombie"]` in the `.tscn`, with no
+  `add_to_group()` anywhere), which meant a new enemy scene could silently forget it and be
+  invisible to every tower, the spatial grid and every AoE — with no error. Nine literals across
+  six files now read this one const. **A new enemy scene must not re-declare the group in its
+  `.tscn`; it gets it by extending `Enemy`.**
+- **`Enemy.ROUND_CONTRACT`** — the map-side members an enemy needs in order to score. Probed
+  **once at spawn**, not per call site, so `_die()` and `_escape()` can never disagree about
+  whether the map is scoring. A map implementing *all* of it scores; *none* of it is the testbed
+  and is legitimate; **some** of it is always a bug and `push_error`s naming what's missing.
+
+`level_controller._ready()` runs `_assert_enemy_contract()` unconditionally, so a drifted name is
+caught at game start rather than at the first kill of the first round. `boulder.gd` and `fire.gd`
+likewise `push_error` when their splash query falls back **on the real map** — discriminated by
+the `"map"` group, which `clean_area.tscn` deliberately isn't in.
+
+Enemy scripts must never name a controller class — the map is duck-typed through `map`, so
+`class_name Enemy` here can never form a cyclic reference with one on `level_controller`.
 
 ### Waves (A1)
 
@@ -544,6 +572,16 @@ Three things A1 taught that generalise:
    `_check_round_complete()` that real resolutions trigger. It would have reported five waves
    working with round-end completely untested.
 
+**A2 — enemy variety.** 🚧 In progress; see [a2_plan.md](a2_plan.md) for the work order and
+step-by-step state. Step 0 (harden the enemy contract) is shipped and verified.
+
+A fourth lesson, from A2's R-0, which generalises past this project: **verify the safety net by
+breaking it.** The contract guards were only trusted after a member was deliberately misspelled
+and both nets were watched firing with the exact missing name. That exercise is also what
+surfaced the `debugger_get_log` vs `editor_get_console` gap under Gotchas — a net that had never
+been tripped, checked through a stream that could not have shown it, would have been worth
+nothing.
+
 Three bugs found in the M1 audit are worth remembering for the class of mistake, not the fix:
 
 1. **Nothing ever saved.** `save_data()` had exactly one caller — `reset_progress()`. Every
@@ -577,9 +615,21 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the
   mismatch.
+- **Runtime errors go to `debugger_get_log`, NOT `editor_get_console`.** On Godot 4.5+
+  `editor_get_console` shows the *editor's* console: it catches parse and load errors, but a
+  running game's `push_error`/runtime errors do not appear there. **Checking the wrong stream and
+  reporting "zero errors" is the easiest false negative available in this project** — it happened
+  through all of A1 before being caught in A2's R-0. Use `debugger_get_log` (optionally
+  `text_filter: "ERROR"`) to verify a playtest; use `editor_get_console` for compile/parse state.
 - **`node_call_method` is editor-only.** For a *running* game it is `execute_code`. Bind the map
   with `scope_path` (`/root/map1`) to call its methods unqualified and to dodge the Variant
   property-chaining limitation.
+- **A new `class_name` is invisible until the editor rescans.** `script_check` reports
+  `Identifier 'Enemy' not declared` on every consumer until you call `editor_refresh`. Not a code
+  error — a stale filesystem cache.
+- **A ~5s round trip is longer than a 12s breather feels.** Three consecutive polls showing an
+  unchanged wave and an empty board is usually a breather, not a stall. Read `phase` before
+  concluding anything is stuck.
 - **Autoloads are unreachable as bare identifiers in `execute_code`** — `PlayerData.silver` fails
   with "Invalid named index". Address them by node path: `get_node("/root/PlayerData").get("silver")`.
 - **An explicit `.name` on a button is not enough to make its path guessable.** `round_ui`'s

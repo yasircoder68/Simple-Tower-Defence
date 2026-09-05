@@ -49,11 +49,11 @@ func _on_area_entered(area):
 		queue_free()
 
 func _splash_candidates() -> Array:
-	if map and map.has_method("get_zombies_in_radius"):
-		return map.get_zombies_in_radius(global_position, aoe_radius)
+	if map and map.has_method("get_enemies_in_radius"):
+		return map.get_enemies_in_radius(global_position, aoe_radius)
 
 	# See boulder.gd: a fallback on the real map means the query name drifted,
 	# and quietly degrades to a full scene scan instead of erroring.
 	if map != null and map.is_in_group("map"):
-		push_error("fire: map has no get_zombies_in_radius() — falling back to a full scene scan. The query name has drifted.")
+		push_error("fire: map has no get_enemies_in_radius() — falling back to a full scene scan. The query name has drifted.")
 	return get_tree().get_nodes_in_group(Enemy.GROUP)

@@ -47,13 +47,13 @@ func _apply_range(range_px: float) -> void:
 
 func _on_timer_timeout():
 	var targets = get_overlapping_areas()
-	var zombies = []
+	var enemies = []
 	for t in targets:
 		if t.is_in_group(Enemy.GROUP):
-			zombies.append(t)
+			enemies.append(t)
 
-	if zombies.size() > 0:
-		var target = zombies[randi() % zombies.size()]
+	if enemies.size() > 0:
+		var target = enemies[randi() % enemies.size()]
 		var arrow_scene = preload("res://entities/projectiles/arrow/arrow.tscn")
 		var arrow = arrow_scene.instantiate()
 		arrow.target = target

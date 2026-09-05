@@ -21,15 +21,15 @@ extends Area2D
 ## literals collapse to this one const; a typo in the const NAME is now a parse
 ## error instead of a silent miss.
 ##
-## Still "zombie" here: R-0 changes nothing observable, so that R-1's rename has
-## a meaningful diff to verify. Once every consumer reads this const the value
-## is a private detail, and R-1 flips it in one place.
-const GROUP := "zombie"
+## Type-neutral, like everything else the machinery is named after: skeletons and
+## ogres join this same group. Because every consumer reads the const rather than
+## a literal, R-1 flipped the value here and nowhere else.
+const GROUP := "enemy"
 
 ## Map-side members an enemy needs to score. Either the map implements ALL of
 ## them or NONE — testbed/clean_area.tscn implements none, which is why this is
 ## probed rather than required.
-const ROUND_CONTRACT := ["on_zombie_killed", "on_zombie_escaped"]
+const ROUND_CONTRACT := ["on_enemy_killed", "on_enemy_escaped"]
 
 const SEPARATION_RADIUS := 32.0
 const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
@@ -62,8 +62,8 @@ func _ready() -> void:
 	add_to_group(GROUP)
 	_has_round_contract = _probe_round_contract()
 
-	if "zombie_grid" in map:
-		_grid = map.zombie_grid
+	if "enemy_grid" in map:
+		_grid = map.enemy_grid
 
 
 ## Asks the whole contract at once, rather than each call site guarding itself.
@@ -186,7 +186,7 @@ func take_damage(amount: int) -> void:
 ## _escape() can never disagree about whether the map is scoring.
 func _die() -> void:
 	if _has_round_contract:
-		map.on_zombie_killed(silver_reward)
+		map.on_enemy_killed(silver_reward)
 	queue_free()
 
 
@@ -194,5 +194,5 @@ func _die() -> void:
 ## despawn. Same gate as _die() — deliberately the same bool, not a second probe.
 func _escape() -> void:
 	if _has_round_contract:
-		map.on_zombie_escaped()
+		map.on_enemy_escaped()
 	queue_free()

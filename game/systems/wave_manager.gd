@@ -71,7 +71,7 @@ var _breather_timer: Timer = null
 
 func _ready() -> void:
 	# A Timer, not an await loop. The old spawn_zombies() awaited per zombie,
-	# making it a coroutine that outlived everything: _clear_all_zombies()
+	# making it a coroutine that outlived everything: _clear_all_enemies()
 	# could not touch it, and its round_state guard only helped if it happened
 	# to wake while the round was over — between Play Again and Start it woke
 	# into a fresh IN_ROUND and kept spawning. A Timer has nothing to leak,
@@ -165,11 +165,11 @@ func reset() -> void:
 	# it, but leaving a stale count sitting in round-scoped state is how the
 	# next reader of it gets quietly misled.
 	if map != null:
-		map.zombies_to_resolve = 0
+		map.enemies_to_resolve = 0
 
 
 ## One enemy of the current wave has been killed or has escaped. Forwarded from
-## level_controller.on_zombie_killed() / on_zombie_escaped(), which is the seam
+## level_controller.on_enemy_killed() / on_enemy_escaped(), which is the seam
 ## that lets this land without reopening that file.
 func on_enemy_resolved() -> void:
 	if phase != Phase.SPAWNING and phase != Phase.CLEARING:
@@ -197,9 +197,9 @@ func force_clear_wave() -> void:
 
 	_spawn_timer.stop()
 	_spawned_this_wave = _waves[current_wave - 1]["count"]
-	map._clear_all_zombies()
+	map._clear_all_enemies()
 	wave_remaining = 0
-	map.zombies_to_resolve = 0
+	map.enemies_to_resolve = 0
 	_advance_after_wave()
 	# Real resolutions arrive through level_controller, which calls this right
 	# after forwarding to on_enemy_resolved(). Without it the hook advances
@@ -216,7 +216,7 @@ func _advance_after_wave() -> void:
 	if current_wave >= _waves.size():
 		phase = Phase.DONE
 		all_waves_complete.emit()
-		# Deliberately does NOT touch map.zombies_to_resolve, which is already
+		# Deliberately does NOT touch map.enemies_to_resolve, which is already
 		# 0 — so level_controller's own _check_round_complete(), running
 		# immediately after this returns, ends the round won through the exact
 		# path M1 already uses (gold-once ledger, save flush, round_ended).
@@ -237,8 +237,8 @@ func _begin_breather() -> void:
 	# to prevent, re-entering through the gap the breather creates.
 	#
 	# Reserving before the enemies exist is not a new idea here: _start_round()
-	# always set zombies_to_resolve before a single one had spawned.
-	map.zombies_to_resolve = _waves[current_wave]["count"]
+	# always set enemies_to_resolve before a single one had spawned.
+	map.enemies_to_resolve = _waves[current_wave]["count"]
 
 	# A zero-length breather is a valid tuning choice, and Timer rejects a
 	# wait_time of 0 — go straight on instead.
@@ -293,7 +293,7 @@ func _start_wave(index: int) -> void:
 	# The important consequence: on the LAST wave nothing tops it up, so it
 	# reaches 0 naturally and _check_round_complete() ends the round won
 	# without this manager needing to reach into _end_round() at all.
-	map.zombies_to_resolve = wave["count"]
+	map.enemies_to_resolve = wave["count"]
 
 	wave_started.emit(current_wave, _waves.size(), wave["count"])
 

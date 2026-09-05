@@ -46,7 +46,7 @@ func _impact() -> void:
 		# guarantees a candidate survives an earlier iteration of THIS loop —
 		# two AoE hits landing on one cluster in a single frame is what crashed
 		# the game before (CLAUDE.md, Known issue 1b). Every consumer of
-		# zombie_grid_nodes needs this guard.
+		# enemy_grid_nodes needs this guard.
 		if not is_instance_valid(z):
 			continue
 		if z.global_position.distance_to(global_position) <= RADIUS:
@@ -60,13 +60,13 @@ func _impact() -> void:
 ## same reason zombie.gd tolerates clean_area.tscn — and is NOT validity- or
 ## distance-filtered, which is why the loop above re-checks both.
 func _splash_candidates() -> Array:
-	if map and map.has_method("get_zombies_in_radius"):
-		return map.get_zombies_in_radius(global_position, RADIUS)
+	if map and map.has_method("get_enemies_in_radius"):
+		return map.get_enemies_in_radius(global_position, RADIUS)
 
 	# Falling back is legitimate only on a map with no spatial grid — the
 	# testbed, which is not in the "map" group. On the REAL map it means the
 	# query name drifted, and the fallback quietly scans every enemy in the
 	# scene: a perf cliff dressed as working code. Say so.
 	if map != null and map.is_in_group("map"):
-		push_error("boulder: map has no get_zombies_in_radius() — falling back to a full scene scan. The query name has drifted.")
+		push_error("boulder: map has no get_enemies_in_radius() — falling back to a full scene scan. The query name has drifted.")
 	return get_tree().get_nodes_in_group(Enemy.GROUP)

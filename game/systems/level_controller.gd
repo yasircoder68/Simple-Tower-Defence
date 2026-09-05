@@ -1,6 +1,6 @@
 extends Node2D
 
-# Zombies are pushed apart by this radius. It also sets the spatial grid cell
+# Enemies are pushed apart by this radius. It also sets the spatial grid cell
 # size, so one grid lookup covers every neighbour that could possibly matter.
 const SEPARATION_RADIUS := 32.0
 
@@ -34,14 +34,14 @@ var walls_dict: Dictionary = {} # Vector2i -> bool
 ## ghost-occupied cell you can never build on, or a leaked slot).
 var towers_by_cell: Dictionary = {}
 
-# Vector2i cell -> Array of zombie positions (Vector2), rebuilt each physics
+# Vector2i cell -> Array of enemy positions (Vector2), rebuilt each physics
 # frame. Positions rather than node references on purpose: separation reads this
-# hundreds of times per zombie per frame, and going through a node reference
+# hundreds of times per enemy per frame, and going through a node reference
 # means a Variant dynamic dispatch per read, which is what actually melts the
 # framerate at horde scale.
-var zombie_grid: Dictionary = {}
+var enemy_grid: Dictionary = {}
 # Same keys, but node references — for splash damage, which needs take_damage().
-var zombie_grid_nodes: Dictionary = {}
+var enemy_grid_nodes: Dictionary = {}
 
 var dragging_type: String = ""
 var ghost: Node2D = null
@@ -59,7 +59,7 @@ var moving_from_cell = null
 # --- Round lifecycle ----------------------------------------------------
 #
 # Towers are placed in PRE_ROUND only; the loadout locks the moment a round
-# starts. This state — round_state, base_health, zombies_to_resolve,
+# starts. This state — round_state, base_health, enemies_to_resolve,
 # towers_by_cell — is round-scoped and is never written to PlayerData. See
 # CLAUDE.md's state boundary table.
 
@@ -76,7 +76,7 @@ var round_state: RoundState = RoundState.PRE_ROUND
 var base_health: Node = null
 var wave_manager: Node = null
 var ability_manager: Node = null
-var zombies_to_resolve: int = 0
+var enemies_to_resolve: int = 0
 ## Silver earned in the current round only — reported on the result screen.
 ## Round-scoped; the running total lives in PlayerData.silver.
 var silver_earned_this_round: int = 0
@@ -127,7 +127,7 @@ func _ready() -> void:
 ## without its caller is silent: the has_method() guard simply returns false and
 ## kills stop scoring. This turns that into a startup error.
 func _assert_enemy_contract() -> void:
-	var required := Enemy.ROUND_CONTRACT + ["get_zombies_in_radius"]
+	var required := Enemy.ROUND_CONTRACT + ["get_enemies_in_radius"]
 	var missing: Array = []
 	for member in required:
 		if not has_method(member):
@@ -135,50 +135,50 @@ func _assert_enemy_contract() -> void:
 
 	if not missing.is_empty():
 		push_error("level_controller is missing enemy-contract members %s — enemies will not score. A rename has drifted." % [missing])
-	elif not ("zombie_grid" in self):
-		push_error("level_controller has no zombie_grid — separation will be silently disabled for every enemy.")
+	elif not ("enemy_grid" in self):
+		push_error("level_controller has no enemy_grid — separation will be silently disabled for every enemy.")
 
 
 func _physics_process(_delta: float) -> void:
-	_rebuild_zombie_grid()
+	_rebuild_enemy_grid()
 
 
-# --- Zombie spatial grid -----------------------------------------------------
-# Zombies used to find each other via Area2D.get_overlapping_areas(), which
-# allocated a fresh array per zombie per frame and dropped the game to 2 FPS at
-# 600 zombies. A single O(n) rebuild here replaces all of those queries.
+# --- Enemy spatial grid -----------------------------------------------------
+# Enemies used to find each other via Area2D.get_overlapping_areas(), which
+# allocated a fresh array per enemy per frame and dropped the game to 2 FPS at
+# 600 enemies. A single O(n) rebuild here replaces all of those queries.
 
-func _rebuild_zombie_grid() -> void:
-	zombie_grid.clear()
-	zombie_grid_nodes.clear()
+func _rebuild_enemy_grid() -> void:
+	enemy_grid.clear()
+	enemy_grid_nodes.clear()
 	for z in get_tree().get_nodes_in_group(Enemy.GROUP):
 		# queue_free() doesn't leave the group until end of frame, so a dead
-		# zombie would otherwise be indexed and handed to splash queries.
+		# enemy would otherwise be indexed and handed to splash queries.
 		if not is_instance_valid(z) or z.is_queued_for_deletion():
 			continue
 		var pos: Vector2 = z.global_position
 		var key := _grid_key(pos)
-		if not zombie_grid.has(key):
-			zombie_grid[key] = []
-			zombie_grid_nodes[key] = []
-		zombie_grid[key].append(pos)
-		zombie_grid_nodes[key].append(z)
+		if not enemy_grid.has(key):
+			enemy_grid[key] = []
+			enemy_grid_nodes[key] = []
+		enemy_grid[key].append(pos)
+		enemy_grid_nodes[key].append(z)
 
 
 func _grid_key(world_pos: Vector2) -> Vector2i:
 	return Vector2i(floori(world_pos.x / SEPARATION_RADIUS), floori(world_pos.y / SEPARATION_RADIUS))
 
 
-func get_zombies_in_radius(world_pos: Vector2, radius: float) -> Array:
+func get_enemies_in_radius(world_pos: Vector2, radius: float) -> Array:
 	var result: Array = []
 	var span := int(ceil(radius / SEPARATION_RADIUS))
 	var base := _grid_key(world_pos)
 	for dx in range(-span, span + 1):
 		for dy in range(-span, span + 1):
 			var key := base + Vector2i(dx, dy)
-			if not zombie_grid_nodes.has(key):
+			if not enemy_grid_nodes.has(key):
 				continue
-			for z in zombie_grid_nodes[key]:
+			for z in enemy_grid_nodes[key]:
 				# The grid caches node references at rebuild time, but splash
 				# damage reads it later in the frame — by then other kills may
 				# already have freed some of them. Without this guard, two
@@ -213,14 +213,14 @@ func _start_round() -> void:
 	round_state = RoundState.IN_ROUND
 	base_health.reset()
 	ability_manager.reset()
-	# zombies_to_resolve is no longer seeded here: wave_manager sets it per
+	# enemies_to_resolve is no longer seeded here: wave_manager sets it per
 	# wave, topping it up at each wave boundary so this controller's existing
 	# decrement-and-check path still decides when the round is won.
 	silver_earned_this_round = 0
 
 	# Towers persist between rounds now, so any upgrade bought since the last
 	# round hasn't reached them yet — they resolved their stats when they were
-	# placed. Re-resolve before the first zombie spawns.
+	# placed. Re-resolve before the first enemy spawns.
 	get_tree().call_group("tower_unit", "refresh_stats")
 
 	round_started.emit()
@@ -235,7 +235,7 @@ func _start_round() -> void:
 ## level scene destroys these nodes with it. If levels ever start swapping
 ## in-place without a scene reload, call _clear_placed_towers() at that point.
 func start_new_round() -> void:
-	_clear_all_zombies()
+	_clear_all_enemies()
 	# Reset lives here as well as in _start_round(), so the pre-round HUD shows
 	# the lives you're about to play with rather than "0/20" left over from the
 	# loss you just took. _start_round() resetting again is harmless.
@@ -246,29 +246,29 @@ func start_new_round() -> void:
 	$CanvasLayer/StartButton.show()
 
 
-## A zombie died to tower damage. has_method-called from zombie.gd — guarded
+## An enemy died to tower damage. has_method-called from zombie.gd — guarded
 ## there, and again here, against calls arriving after the round already
-## ended (a zombie's death this frame can outrace _end_round firing on a
+## ended (an enemy's death this frame can outrace _end_round firing on a
 ## sibling's escape the same frame).
-func on_zombie_killed(silver_reward: int) -> void:
+func on_enemy_killed(silver_reward: int) -> void:
 	if round_state != RoundState.IN_ROUND:
 		return
 	PlayerData.earn_silver(silver_reward)
 	silver_earned_this_round += silver_reward
-	zombies_to_resolve -= 1
+	enemies_to_resolve -= 1
 	# Inert until W-2, which moves wave-scoped accounting into the manager.
 	# Forwarding from here means that move never has to reopen this file.
 	wave_manager.on_enemy_resolved()
 	_check_round_complete()
 
 
-## A zombie reached the end unharmed. Costs a life instead of a silent
+## An enemy reached the end unharmed. Costs a life instead of a silent
 ## despawn; no silver.
-func on_zombie_escaped() -> void:
+func on_enemy_escaped() -> void:
 	if round_state != RoundState.IN_ROUND:
 		return
 	base_health.lose_life()
-	zombies_to_resolve -= 1
+	enemies_to_resolve -= 1
 	if base_health.lives <= 0:
 		_end_round(false)
 		return
@@ -280,14 +280,14 @@ func on_zombie_escaped() -> void:
 
 
 func _check_round_complete() -> void:
-	if round_state == RoundState.IN_ROUND and zombies_to_resolve <= 0:
+	if round_state == RoundState.IN_ROUND and enemies_to_resolve <= 0:
 		_end_round(true)
 
 
 func _end_round(won: bool) -> void:
 	round_state = RoundState.ROUND_WON if won else RoundState.ROUND_LOST
 
-	# _clear_all_zombies() handles enemies already on the board, but nothing
+	# _clear_all_enemies() handles enemies already on the board, but nothing
 	# stopped a RUNNING spawner before this — that gap is exactly what let a
 	# stale spawn coroutine bleed into the next round.
 	wave_manager.abort()
@@ -302,7 +302,7 @@ func _end_round(won: bool) -> void:
 		# Economy section), gold_awarded stays 0.
 
 	if not won:
-		_clear_all_zombies()
+		_clear_all_enemies()
 
 	# The round's whole silver haul lands in one write here rather than one per
 	# kill. Runs on a loss too — silver earned before dying is kept.
@@ -311,7 +311,7 @@ func _end_round(won: bool) -> void:
 	round_ended.emit(won, gold_awarded, silver_earned_this_round)
 
 
-func _clear_all_zombies() -> void:
+func _clear_all_enemies() -> void:
 	for z in get_tree().get_nodes_in_group(Enemy.GROUP):
 		z.queue_free()
 
