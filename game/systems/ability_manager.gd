@@ -71,7 +71,7 @@ func setup(map_ref: Node2D) -> void:
 
 	# The bar is HUD, so it needs the CanvasLayer. Guarded rather than assumed:
 	# testbed/clean_area.tscn has no CanvasLayer, and the same has_method-style
-	# tolerance is why zombies run unmodified there.
+	# tolerance is why enemies run unmodified there.
 	var canvas := map.get_node_or_null("CanvasLayer")
 	if canvas != null:
 		_bar = ABILITY_BAR_SCRIPT.new()

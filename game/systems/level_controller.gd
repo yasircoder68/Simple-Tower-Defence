@@ -246,7 +246,7 @@ func start_new_round() -> void:
 	$CanvasLayer/StartButton.show()
 
 
-## An enemy died to tower damage. has_method-called from zombie.gd — guarded
+## An enemy died to tower damage. Called from enemy.gd — guarded
 ## there, and again here, against calls arriving after the round already
 ## ended (an enemy's death this frame can outrace _end_round firing on a
 ## sibling's escape the same frame).

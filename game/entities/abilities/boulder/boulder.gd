@@ -56,8 +56,8 @@ func _impact() -> void:
 
 
 ## Mirrors fire.gd: the grid keeps this O(nearby) instead of scanning every
-## zombie in the scene. The fallback exists for maps without the grid — the
-## same reason zombie.gd tolerates clean_area.tscn — and is NOT validity- or
+## enemy in the scene. The fallback exists for maps without the grid — the
+## same reason enemy.gd tolerates clean_area.tscn — and is NOT validity- or
 ## distance-filtered, which is why the loop above re-checks both.
 func _splash_candidates() -> Array:
 	if map and map.has_method("get_enemies_in_radius"):

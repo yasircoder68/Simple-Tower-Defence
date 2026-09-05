@@ -1,11 +1,12 @@
 class_name Enemy
 extends Area2D
 
-## The enemy base. Still living in a file called zombie.gd until A2's R-2
-## entity rename — the CLASS is already the shared base, the FILE name is what
-## is stale. `class_name` is brought forward from E-1 because it is what lets
-## the six consumer files say `Enemy.GROUP` instead of a bare "zombie" literal,
-## which is the whole point of R-0.
+## The shared enemy base. Deliberately NOT inside a per-type folder: goblin,
+## skeleton and ogre are .tscn files that all point at THIS script, so it sits
+## one level up at entities/enemies/enemy.gd rather than colocated with any one
+## of them. That is the one documented exception to CLAUDE.md's colocation
+## convention, and it is what makes "adding the next enemy is cheap" true —
+## a new type is a scene and a registry entry, with no script of its own.
 ##
 ## Enemy scripts must never name LevelController: the map is duck-typed through
 ## `map`, deliberately, so that `class_name Enemy` here and a class_name on the
@@ -15,7 +16,7 @@ extends Area2D
 ## arrow, fire, boulder and level_controller.
 ##
 ## Joined in code, NOT declared in the .tscn. It used to be scene data only —
-## `groups=["zombie"]` in zombie.tscn with no add_to_group() anywhere — which
+## `groups=["zombie"]` in the enemy scene with no add_to_group() anywhere — which
 ## meant a new enemy scene could silently forget it and be invisible to every
 ## tower, the spatial grid and every AoE, with no error at all. Nine string
 ## literals collapse to this one const; a typo in the const NAME is now a parse
@@ -36,12 +37,12 @@ const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
 const MAX_SEPARATION_NEIGHBORS := 10
 # Hard ceiling on candidates examined per frame. Separation is a soft cosmetic
 # force, so sampling a bounded subset of a dense cell looks identical and keeps
-# the cost linear in zombie count instead of linear in local density.
+# the cost linear in enemy count instead of linear in local density.
 const MAX_SEPARATION_CHECKS := 24
 const ARRIVAL_RADIUS := 30.0
 
 @export var speed: float = 200.0
-## Silver the round controller earns via PlayerData when this zombie is
+## Silver the round controller earns via PlayerData when this enemy is
 ## KILLED (not when it escapes — see _die() vs _escape() below).
 @export var silver_reward: int = 2
 
@@ -51,7 +52,7 @@ var hp: int = 10
 
 # The grid dictionary is rebuilt in place (cleared + refilled) every frame, so
 # the REFERENCE is stable and safe to cache. Fetching it per frame through
-# map.get() instead costs a dictionary copy per zombie per frame.
+# map.get() instead costs a dictionary copy per enemy per frame.
 var _grid: Dictionary = {}
 
 ## Answered once at spawn instead of at every call site. See _probe_round_contract().
@@ -119,10 +120,10 @@ func _physics_process(delta: float) -> void:
 # Vector2 per cell — packed arrays are copy-on-write and copy on every append). Two things matter for speed here and both were learned the hard
 # way: never build a merged candidate list (the allocation dwarfs the work), and
 # never reach through a node reference in the inner loop (each `other.global_position`
-# is a Variant dynamic dispatch — with ~200 candidates per zombie per frame that
-# alone took 600 zombies from 60 FPS to 2).
+# is a Variant dynamic dispatch — with ~200 candidates per enemy per frame that
+# alone took 600 enemies from 60 FPS to 2).
 func _separation() -> Vector2:
-	# clean_area.tscn drives zombies too and has no grid — fall back to no push.
+	# clean_area.tscn drives enemies too and has no grid — fall back to no push.
 	if _grid.is_empty():
 		return Vector2.ZERO
 
@@ -145,7 +146,7 @@ func _separation() -> Vector2:
 					return separation
 				var offset: Vector2 = my_pos - other_pos
 				var dist_sq := offset.length_squared()
-				# dist_sq == 0 is this zombie's own entry in the grid.
+				# dist_sq == 0 is this enemy's own entry in the grid.
 				if dist_sq >= SEPARATION_RADIUS_SQ or dist_sq <= 0.0:
 					continue
 				var dist := sqrt(dist_sq)

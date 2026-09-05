@@ -52,7 +52,7 @@ func _on_timer_timeout():
 			enemies.append(t)
 
 	if enemies.size() > 0:
-		# Pick a random zombie so multiple wizards don't shoot the exact same target
+		# Pick a random enemy so multiple wizards don't shoot the exact same target
 		var target = enemies[randi() % enemies.size()]
 		var fire_scene = preload("res://entities/projectiles/fire/fire.tscn")
 		var fire = fire_scene.instantiate()

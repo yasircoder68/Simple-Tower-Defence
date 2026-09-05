@@ -36,7 +36,7 @@ func _on_area_entered(area):
 		hit = true
 		# Splash everything inside aoe_radius. The candidate list comes from the
 		# map's spatial grid so this stays O(nearby) instead of scanning every
-		# zombie in the scene on every impact.
+		# enemy in the scene on every impact.
 		for z in _splash_candidates():
 			# The fallback path (get_nodes_in_group) isn't validity-filtered, and
 			# nothing guarantees a candidate survives an earlier iteration of

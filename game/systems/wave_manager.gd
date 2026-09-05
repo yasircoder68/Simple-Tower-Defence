@@ -3,10 +3,10 @@ extends Node
 ## Round-scoped wave sequencer. Owns which wave is running, how many of that
 ## wave's enemies are still unresolved, and the breather between waves.
 ##
-## A1 Track W. W-1 (this) owns the phase machine and the spawner; W-2 takes over
-## resolution accounting; W-3 adds the breather; W-5 hands the round over from
-## level_controller's flat spawn_zombies(). Until W-5 the old path is still
-## live — see the note on zombie_count in a1_plan.md's Track W intro.
+## Built across A1's Track W: the phase machine and spawner (W-1), resolution
+## accounting (W-2), the breather (W-3), reset guards (W-4), and the handover
+## that deleted level_controller's flat one-shot spawner (W-5). That old path is
+## gone; this is the only thing that puts enemies on the board.
 ##
 ## Nothing here may write to PlayerData. Wave state is round-scoped and is
 ## discarded with the round — see CLAUDE.md's state boundary table.
@@ -16,7 +16,7 @@ signal wave_cleared(wave_num: int)
 signal breather_started(seconds: float)
 signal all_waves_complete
 
-const ZOMBIE_SCENE := preload("res://entities/enemies/zombie/zombie.tscn")
+const GOBLIN_SCENE := preload("res://entities/enemies/goblin/goblin.tscn")
 
 ## The authored escalation curve. Count and spawn interval only — enemy HP and
 ## speed are constant across waves by decision (a1_plan.md), which is why this
@@ -36,8 +36,8 @@ const WAVE_TABLE := [
 ## shrinking this further.
 const MIN_SPAWN_INTERVAL := 0.02
 
-## Radius of the random scatter around StartPoint, carried over from the flat
-## spawn_zombies() this replaces — without it every enemy stacks on one pixel.
+## Radius of the random scatter around StartPoint, carried over from the
+## flat spawner this replaced — without it every enemy stacks on one pixel.
 const SPAWN_SCATTER := 40.0
 
 ## Seconds of breather between waves. Not a build phase — placement and
@@ -70,7 +70,7 @@ var _breather_timer: Timer = null
 
 
 func _ready() -> void:
-	# A Timer, not an await loop. The old spawn_zombies() awaited per zombie,
+	# A Timer, not an await loop. The old flat spawner awaited per enemy,
 	# making it a coroutine that outlived everything: _clear_all_enemies()
 	# could not touch it, and its round_state guard only helped if it happened
 	# to wake while the round was over — between Play Again and Start it woke
@@ -116,8 +116,8 @@ func _build_waves() -> Array:
 
 # --- Public API ---------------------------------------------------------
 
-## Starts wave 1. Called from level_controller._start_round() once W-5 lands;
-## until then, drive it directly to test.
+## Starts wave 1. Called from level_controller._start_round(); can also be
+## driven directly via execute_code to test without pressing Start.
 func begin() -> void:
 	# Always start from a known state. Without this, a second begin() while a
 	# wave is already running would rebuild _waves and reset the counters
@@ -316,13 +316,13 @@ func _on_spawn_tick() -> void:
 func _spawn_one() -> void:
 	var wave: Dictionary = _waves[current_wave - 1]
 
-	var zombie := ZOMBIE_SCENE.instantiate()
-	# Must be a direct child of the map: zombie.gd reaches its map via
+	var enemy := GOBLIN_SCENE.instantiate()
+	# Must be a direct child of the map: enemy.gd reaches its map via
 	# get_parent() and reads map.end_point off it.
-	map.add_child(zombie)
+	map.add_child(enemy)
 	var angle := randf() * TAU
 	var scatter := randf_range(0.0, SPAWN_SCATTER)
-	zombie.global_position = map.start_point.global_position + Vector2(cos(angle), sin(angle)) * scatter
+	enemy.global_position = map.start_point.global_position + Vector2(cos(angle), sin(angle)) * scatter
 
 	_spawned_this_wave += 1
 	if _spawned_this_wave >= wave["count"]:
