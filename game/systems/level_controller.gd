@@ -76,6 +76,8 @@ var round_state: RoundState = RoundState.PRE_ROUND
 var base_health: Node = null
 var wave_manager: Node = null
 var ability_manager: Node = null
+## Dev-only horde benchmark. See systems/bench.gd and a3_plan.md.
+var bench: Node = null
 var enemies_to_resolve: int = 0
 ## Silver earned in the current round only — reported on the result screen.
 ## Round-scoped; the running total lives in PlayerData.silver.
@@ -103,6 +105,14 @@ func _ready() -> void:
 	ability_manager.name = "AbilityManager"
 	add_child(ability_manager)
 	ability_manager.setup(self)
+
+	# Dev instrumentation, inert until run() is called over MCP. Constructed
+	# unconditionally so its node path is stable — a bench you have to enable
+	# first is a bench nobody runs.
+	bench = preload("res://systems/bench.gd").new()
+	bench.name = "Bench"
+	add_child(bench)
+	bench.setup(self)
 
 	# Instantiate Sidebar and Ghost
 	var sidebar_scene = preload("res://ui/build_sidebar/build_sidebar.tscn")
@@ -140,6 +150,11 @@ func _assert_enemy_contract() -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	# The last rung of the bench ablation ladder — isolates the whole manager
+	# side (group scan + per-cell Array reallocation) by subtraction. One int
+	# compare per FRAME, not per enemy. See a3_plan.md's M-1.
+	if Enemy.bench_variant >= Enemy.BENCH_NO_GRID:
+		return
 	_rebuild_enemy_grid()
 
 

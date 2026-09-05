@@ -1,7 +1,50 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: planned, not started.** Blocked on A2 (see [a2_plan.md](a2_plan.md)), except the bench
-harness, which moves *into* A2 — see *Scope change to A2* below.
+**Status: M-0 (bench harness) built and verified during A2. M-1 onward not started.**
+
+## First measurements — M-0, `BENCH_TAG "M-0"`
+
+One machine, editor-hosted playtest, `packed` config (20 px lattice), 600 enemies.
+
+| Tag | V | n | config | frame p50 | frame p95 | phys p50 | phys p95 | **µs/enemy** | pairs | nodes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| M-0 | V1 | 600 | packed | 16.67 | 50.00 | 15.77 | 21.79 | **26.3** | 180 | 1843 |
+| M-0 | V0 | 600 | packed | 133.33 | 144.51 | 35.59 | 52.38 | **59.3** | 180 | 1843 |
+
+**The harness reproduces both of the numbers this project already trusted**, which is the
+self-test it had to pass before being believed:
+
+- `16600 / 59.3` = **280 enemies** at 60 FPS — CLAUDE.md's "practical budget ~200–250". ✅
+- `16600 / 26.3` = **631 enemies** with separation off — CLAUDE.md's "60 FPS at 600". ✅
+
+### What the first attribution says
+
+**Separation costs 33.0 µs/enemy** (59.3 − 26.3) — 56% of physics time. That much was expected.
+
+**The other 26.3 µs/enemy was not.** At 600 enemies that is 15.77 ms of a 16.67 ms physics
+budget — **95% of the frame, before separation runs at all.** Even if separation were made
+completely free, 600 enemies would sit exactly at the edge.
+
+**This changes the shape of the target.** 1500 enemies needs `us_per_enemy ≤ 11.1`, a **5.3×**
+reduction from 59.3. Driving separation to literally zero only reaches 26.3 — less than halfway.
+**A3 must attack the non-separation baseline too**, and the items that do that are P-1 (cached cell
+conversion), P-3 (registry + persistent buckets) and G-2 (the manager loop). The plan below already
+contains them; what changed is that they are now known to be *load-bearing* rather than
+supporting.
+
+### Two harness caveats, recorded rather than hidden
+
+- **`frame_ms` is vsync-quantised; `phys_ms` and `us_per_enemy` are not.** The frame figures land on
+  exact multiples of 16.67 (16.67, 50.00, 133.33) despite `VSYNC_DISABLED` being requested, so
+  treat them as secondary. `Performance.TIME_PHYSICS_PROCESS` measures CPU work directly and is
+  unaffected — which is why the headline metric is the one derived from it.
+- **A run is ~4 s at 60 FPS but ~45 s in the 7 FPS regime**, because sampling is frame-bounded
+  (60 warm-up + 180 samples). Consider making it time-bounded before M-1's full matrix, which is
+  6 variants × 4 counts × 2 configs.
+
+---
+
+Blocked on A2 (see [a2_plan.md](a2_plan.md)) for everything after M-0.
 
 **Target: 1500 concurrent enemies at p95 < 16.6 ms**, ~6× today's ceiling. De-nodify and MultiMesh
 are in scope from the start (decided with the user). The ladder below is about **attribution

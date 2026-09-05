@@ -32,6 +32,25 @@ const GROUP := "enemy"
 ## probed rather than required.
 const ROUND_CONTRACT := ["on_enemy_killed", "on_enemy_escaped"]
 
+## Bench ablation stages. Cumulative: each skips everything the one above it
+## skips, plus one more thing. Measuring a stage means subtracting its row from
+## the row above — which gives a full cost breakdown with NO instrumentation
+## inside any inner loop. See a3_plan.md's M-1.
+##
+## BENCH_FULL in all normal play, so the cost of this seam is one int compare
+## per enemy per frame. That overhead is itself measured (a3_plan M-0's second
+## self-test) — if it is detectable, the harness distorts what it measures.
+const BENCH_FULL := 0
+const BENCH_NO_SEPARATION := 1
+const BENCH_NO_FLOW := 2
+const BENCH_NO_MOVE := 3
+const BENCH_NO_PROCESS := 4
+const BENCH_NO_GRID := 5
+
+## Set by systems/bench.gd only. Static so one write reaches every enemy without
+## iterating the horde.
+static var bench_variant: int = BENCH_FULL
+
 const SEPARATION_RADIUS := 32.0
 const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
 const MAX_SEPARATION_NEIGHBORS := 10
@@ -94,20 +113,32 @@ func _probe_round_contract() -> bool:
 	return false
 
 func _physics_process(delta: float) -> void:
+	if bench_variant >= BENCH_NO_PROCESS:
+		return
+
 	if not map.has_method("get_flow_direction"):
 		return
 
-	var flow_dir: Vector2 = map.get_flow_direction(global_position)
+	var flow_dir: Vector2 = Vector2.ZERO
+	if bench_variant < BENCH_NO_FLOW:
+		flow_dir = map.get_flow_direction(global_position)
 
-	# A zero vector means we're standing in the target cell. Walk the last
-	# stretch to the exact end position, then despawn on arrival.
-	if flow_dir == Vector2.ZERO:
-		flow_dir = global_position.direction_to(map.end_point.global_position)
-		if global_position.distance_to(map.end_point.global_position) < ARRIVAL_RADIUS:
-			_escape()
-			return
+		# A zero vector means we're standing in the target cell. Walk the last
+		# stretch to the exact end position, then despawn on arrival.
+		if flow_dir == Vector2.ZERO:
+			flow_dir = global_position.direction_to(map.end_point.global_position)
+			if global_position.distance_to(map.end_point.global_position) < ARRIVAL_RADIUS:
+				_escape()
+				return
 
-	var desired_dir := (flow_dir + _separation() * 1.5).normalized()
+	var separation_push := Vector2.ZERO
+	if bench_variant < BENCH_NO_SEPARATION:
+		separation_push = _separation()
+
+	if bench_variant >= BENCH_NO_MOVE:
+		return
+
+	var desired_dir := (flow_dir + separation_push * 1.5).normalized()
 	if desired_dir == Vector2.ZERO:
 		desired_dir = flow_dir
 
