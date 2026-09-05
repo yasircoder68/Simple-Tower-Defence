@@ -16,18 +16,27 @@ signal wave_cleared(wave_num: int)
 signal breather_started(seconds: float)
 signal all_waves_complete
 
-const GOBLIN_SCENE := preload("res://entities/enemies/goblin/goblin.tscn")
+## The SCENE half of the enemy registry. The STATS half is systems/enemy_types.gd,
+## and they are deliberately in different layers: enemy.gd preloads the stats, so
+## if the stats file preloaded these scenes (which use enemy.gd) that would be a
+## cyclic reference GDScript refuses. Key sets are checked to match at setup().
+const ENEMY_SCENES := {
+	"goblin": preload("res://entities/enemies/goblin/goblin.tscn"),
+}
 
-## The authored escalation curve. Count and spawn interval only — enemy HP and
-## speed are constant across waves by decision (a1_plan.md), which is why this
-## manager never touches the enemy scene: it instantiates and positions, and
-## nothing else.
+## The authored escalation curve. Composition and spawn interval — enemy HP and
+## speed are constant across waves by decision (a1_plan.md), so escalation is
+## density and mix, never durability.
+##
+## `count` is NOT authored here. It is derived in _build_waves() by summing the
+## groups, so the wave's total and its spawn plan can never disagree — see the
+## check in _start_wave(), and why that matters.
 const WAVE_TABLE := [
-	{"count": 20, "spawn_interval": 0.15},
-	{"count": 30, "spawn_interval": 0.12},
-	{"count": 45, "spawn_interval": 0.09},
-	{"count": 65, "spawn_interval": 0.06},
-	{"count": 95, "spawn_interval": 0.04},
+	{"groups": [{"type": "goblin", "count": 20}], "spawn_interval": 0.15},
+	{"groups": [{"type": "goblin", "count": 30}], "spawn_interval": 0.12},
+	{"groups": [{"type": "goblin", "count": 45}], "spawn_interval": 0.09},
+	{"groups": [{"type": "goblin", "count": 65}], "spawn_interval": 0.06},
+	{"groups": [{"type": "goblin", "count": 95}], "spawn_interval": 0.04},
 ]
 
 ## A Timer cannot fire more than once per physics frame (16.7ms at 60Hz), so
@@ -64,6 +73,10 @@ var map: Node2D = null
 ## Resolved wave specs for THIS level, built at begin() from WAVE_TABLE plus
 ## the level's wave_count and difficulty_scale.
 var _waves: Array = []
+## One enemy type id per spawn of the CURRENT wave, in release order. Rebuilt at
+## every _start_wave() and cleared by reset() — round-scoped state, so a lost
+## round must not leave a stale plan for the next one to index into.
+var _spawn_plan: Array = []
 var _spawned_this_wave: int = 0
 var _spawn_timer: Timer = null
 var _breather_timer: Timer = null
@@ -91,6 +104,21 @@ func _ready() -> void:
 
 func setup(map_ref: Node2D) -> void:
 	map = map_ref
+	_assert_registries_agree()
+
+
+## The two halves of the enemy registry live in different files for a good
+## reason (see ENEMY_SCENES), which means they can drift. A stats entry with no
+## scene fails at spawn, mid-wave; a scene with no stats falls back to defaults
+## and quietly plays wrong. Catch both at startup instead.
+func _assert_registries_agree() -> void:
+	var EnemyTypes := preload("res://systems/enemy_types.gd")
+	for id in ENEMY_SCENES:
+		if not EnemyTypes.TYPES.has(id):
+			push_error("wave_manager: enemy scene '%s' has no EnemyTypes.TYPES entry — it would spawn with default stats." % id)
+	for id in EnemyTypes.TYPES:
+		if not ENEMY_SCENES.has(id):
+			push_error("wave_manager: enemy type '%s' has no scene in ENEMY_SCENES — a wave asking for it would fail at spawn." % id)
 
 
 # --- Wave construction --------------------------------------------------
@@ -107,11 +135,59 @@ func _build_waves() -> Array:
 
 	for i in range(rows):
 		var row: Dictionary = WAVE_TABLE[i]
+		var groups: Array = []
+		var total := 0
+
+		for authored in row["groups"]:
+			# maxi(1, ...) is applied PER GROUP, deliberately: it means a
+			# one-ogre group can never be scaled out of existence by a low
+			# difficulty_scale. That is almost certainly what you want for "a
+			# heavy that must not be allowed through" — but it is a decision,
+			# not an accident inherited from the old single-count line.
+			var scaled: int = maxi(1, int(round(authored["count"] * map.difficulty_scale)))
+			groups.append({"type": authored["type"], "count": scaled})
+			total += scaled
+
 		result.append({
-			"count": maxi(1, int(round(row["count"] * map.difficulty_scale))),
+			"groups": groups,
+			# Derived from the same numbers the spawn plan is built from, so the
+			# two cannot disagree.
+			"count": total,
 			"spawn_interval": maxf(row["spawn_interval"], MIN_SPAWN_INTERVAL),
 		})
 	return result
+
+
+## Flattens a wave's groups into one type-id per spawn, in the order they will
+## be released.
+##
+## Deterministic interleave, NOT a shuffle and NOT concatenation:
+##   - concatenation would staple the single ogre to the end of the wave;
+##   - a shuffle would make every measurement noisy and every regression
+##     unreproducible, in a project that verifies by measurement.
+##
+## Largest-remainder: at each slot, release from whichever group is furthest
+## behind its fair share. With one group it degenerates to "all goblins", which
+## is exactly the pre-E-3 behaviour.
+func _build_spawn_plan(groups: Array, total: int) -> Array:
+	var plan: Array = []
+	var placed: Array = []
+	placed.resize(groups.size())
+	placed.fill(0)
+
+	for slot in range(total):
+		var best := 0
+		var best_deficit := -INF
+		for gi in range(groups.size()):
+			var fair_share: float = float(groups[gi]["count"]) * float(slot + 1) / float(total)
+			var deficit: float = fair_share - float(placed[gi])
+			if deficit > best_deficit:
+				best_deficit = deficit
+				best = gi
+		plan.append(groups[best]["type"])
+		placed[best] += 1
+
+	return plan
 
 
 # --- Public API ---------------------------------------------------------
@@ -159,6 +235,7 @@ func reset() -> void:
 	wave_remaining = 0
 	_spawned_this_wave = 0
 	_waves = []
+	_spawn_plan = []
 
 	# A round lost mid-wave leaves level_controller's counter holding whatever
 	# was still unresolved. Nothing reads it before the next wave overwrites
@@ -285,6 +362,19 @@ func _start_wave(index: int) -> void:
 	_spawned_this_wave = 0
 	phase = Phase.SPAWNING
 
+	_spawn_plan = _build_spawn_plan(wave["groups"], wave["count"])
+	# Not an assert(): asserts are stripped from release builds, and this is the
+	# one disagreement that silently breaks a round rather than crashing it. If
+	# the plan is SHORT the spawner runs out and the wave never reaches its
+	# count, so the round hangs in CLEARING forever; if it is LONG the extra
+	# entries are never reached. Neither shows an error on its own.
+	if _spawn_plan.size() != wave["count"]:
+		push_error(
+			"wave_manager: wave %d spawn plan has %d entries but count is %d — the round would %s."
+			% [index, _spawn_plan.size(), wave["count"],
+				"hang forever" if _spawn_plan.size() < wave["count"] else "under-spawn"]
+		)
+
 	# Top level_controller's counter up for this wave. It decrements that
 	# counter per resolution exactly as it always has, and this overwrite
 	# re-syncs the two at every wave boundary — so they cannot drift apart
@@ -316,7 +406,17 @@ func _on_spawn_tick() -> void:
 func _spawn_one() -> void:
 	var wave: Dictionary = _waves[current_wave - 1]
 
-	var enemy := GOBLIN_SCENE.instantiate()
+	if _spawned_this_wave >= _spawn_plan.size():
+		push_error("wave_manager: spawn plan exhausted at %d — stopping to avoid spawning nothing forever." % _spawned_this_wave)
+		_spawn_timer.stop()
+		phase = Phase.CLEARING
+		return
+
+	var enemy_type: String = _spawn_plan[_spawned_this_wave]
+	# Annotated, not inferred: `:=` on a value read out of an untyped Dictionary
+	# is a compile error, not a warning (CLAUDE.md, Conventions).
+	var scene: PackedScene = ENEMY_SCENES[enemy_type]
+	var enemy := scene.instantiate()
 	# Must be a direct child of the map: enemy.gd reaches its map via
 	# get_parent() and reads map.end_point off it.
 	map.add_child(enemy)
