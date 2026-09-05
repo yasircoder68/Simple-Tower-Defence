@@ -7,10 +7,29 @@ Progress against the Sequencing table below:
 | Step | State |
 |---|---|
 | 0 · R-0 harden the contract | ✅ **done and verified** — see *R-0: what actually shipped* |
-| 1–2 · renames | not started |
-| 3–7 · enemy track | not started |
-| 8–10 · ability track | not started |
+| 1 · R-1 machinery rename → `enemy_*` | ✅ **done and verified** |
+| 2 · R-2 entity rename → goblin | ✅ **done and verified** |
+| 3–7 · enemy track (E-1..E-5) | not started |
+| 8–10 · ability track (A-1..A-3) | not started |
 | 11 · tune + docs | not started |
+| **+ · M-0 bench harness** | **added scope — see below** |
+
+### Added scope: the bench harness (A3's M-0, pulled forward)
+
+[a3_plan.md](a3_plan.md)'s measurement harness lands **here**, not in A3. It is purely additive —
+a `systems/bench.gd` child of `level_controller` plus one ablation seam in `enemy.gd`.
+
+Three reasons it belongs in A2:
+
+- **A2's own acceptance criteria want it.** E-1's "a round is numerically identical", E-4's and
+  E-5's "FPS holds at peak" are currently screenshot-reads of an FPS label. FPS is vsync-quantised,
+  so anything between 3 ms and 16.6 ms of work reports "60" — those checks cannot currently detect
+  a regression that matters.
+- **It gets validated on real work** before A3 stakes its largest item on it.
+- **A3's per-enemy cost figures are pre-E-1 and will go stale** the moment the enemy registry and
+  three enemy types land. Building the harness here re-baselines them for free.
+
+Slot it before E-1 so every later A2 step has a number to quote.
 
 ---
 

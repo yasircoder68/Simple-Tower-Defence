@@ -32,9 +32,22 @@ The round becomes something you play rather than watch.
 **Full work order: [a1_plan.md](a1_plan.md)** — implemented and verified live in twelve commits.
 
 A round is now 408 enemies across 5 escalating waves at 60 FPS, with a breather between each and
-a boulder ability as the live input, ending won or lost from a single Start press. What remains
-before this is actually *released*: a hand playtest to confirm the difficulty (see a1_plan's
-caveat), and an itch.io build.
+a boulder ability as the live input, ending won or lost from a single Start press.
+
+**A Windows export exists** (`export/game.exe`, presets committed at `game/export_presets.cfg`).
+Two things checked while planning A3:
+
+- **The MCP toolkit addon self-gates correctly.** `mcp_runtime_server.gd` disables itself on
+  `not OS.has_feature("editor")`, which covers *any* export template, debug and release alike — so
+  the shipped build does **not** open a WebSocket server. Worth recording, because it is the first
+  thing anyone would reasonably suspect of a dev addon that ships.
+- **Worth confirming before upload:** that the export is a *release* build rather than debug (the
+  ~100 MB size and the `game.console.exe` wrapper both suggest debug), and optionally an
+  `addons/*` exclude filter — though at a 762 KB `.pck` the saving is negligible either way.
+
+What remains before this is actually *released*: a hand playtest to confirm `difficulty_scale`
+1.6 is winnable with ability use (see a1_plan's caveat — it was never measured), and the itch
+upload itself.
 
 - **Progressive waves.** Difficulty escalates within a level instead of one flat batch of
   enemies every time. Right now the power curve rises forever and nothing pushes back — this is
@@ -87,14 +100,34 @@ same pathfinding code (cell lookups, coordinate conversion, used-rect), and doin
 separately destabilises that code twice. Decided deliberately: don't migrate before this point,
 and don't leave it past the first batch of new levels.
 
+**Full work order: [a3_plan.md](a3_plan.md).** Target **1500 concurrent enemies at p95 < 16.6 ms**,
+~6× today's ceiling, with de-nodify and MultiMesh in scope from the start.
+
 **Two things to hold onto:**
 
 - **Timebox it, and keep the current engine as a fallback.** If the rewrite proves too
   expensive, the game degrades to smaller battles rather than stalling. That fallback is what
-  keeps this from being a project-killing bet.
+  keeps this from being a project-killing bet. *(a3_plan sharpens this: because every rung is
+  independently committed and measured, the fallback is simply "stop climbing" — there is no
+  second engine to maintain and nothing to abandon.)*
 - **It gets more expensive the longer it waits.** Every tower and enemy built beforehand is more
   to carry across. That is the argument for doing it at A3 rather than at the end of the run —
   early enough to limit the porting cost, late enough that a public build exists first.
+
+**Two findings from planning that change the shape of this stage:**
+
+- **The diagnosis in CLAUDE.md was wrong.** "Move the horde into a single manager loop" removes
+  one Callable dispatch out of ~25 keyed Dictionary operations per enemy per frame. The cost is
+  hashing and `Vector2i` construction. Following it as written would have produced a sixth
+  consecutive "no change" result.
+- **Measurement comes first, and it is not optional.** Six optimisations have been attempted here;
+  five produced "no change", and the only number ever obtained came from deleting the feature. A3
+  opens by building a self-measuring bench harness — *which lands during A2*, so it is validated on
+  real work before A3 depends on it.
+
+**A3 ends with overlapping waves.** A bigger sequential wave is the same fight bigger; overlap is
+what actually makes it *overwhelming*, and [a1_plan.md](a1_plan.md) deferred it to exactly this
+point. That, not the engine, is the shippable headline.
 
 ### A4 — more ways to build · 7%
 
@@ -103,16 +136,45 @@ and don't leave it past the first batch of new levels.
   nothing at all — half the economy is inert. Gold buys tower unlocks and extra placement slots.
 - More placement slots, so the four-tower cap becomes a choice rather than a wall.
 
+**This is smaller than it looks.** `PlayerData` already has `spend_gold()`, `unlocked_towers`,
+`is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A4 is wiring a UI
+to a working economy, not building one.
+
+**Two traps.** Any new tower must join the `tower_unit` group **and** expose `refresh_stats()`, or
+it silently ignores every upgrade the player buys. And more placement slots is a large power
+increase: A1 measured that a 4-tower choke already wins passively at `difficulty_scale` 1.0, so
+this needs a re-tune, not just a number bump.
+
 ### A5 — a campaign shape · 4%
 
 - Level select.
 - A handful of rough levels, so progression has somewhere to go.
+
+**The lever already exists:** `wave_count` + `difficulty_scale` per level means a new level is two
+numbers against one authored curve, not a bespoke wave table.
+
+**Vary layout, not numbers.** A1's tuning found the choke point is what actually sets difficulty —
+raising enemy HP is a binary cliff (archer damage is exactly 10, so any HP above it doubles the
+shots needed and swings a comfortable win into a wave-4 loss), while volume scales smoothly. Level
+geometry is the real knob.
+
+**Blocked on A3's TileMapLayer migration** — don't author fifteen levels against a deprecated API
+(CLAUDE.md Known issue 5).
 
 ### Running throughout · 3%
 
 - A functional theme and HUD, replacing the throwaway debug interface that exists today. Not
   pretty — just no longer embarrassing. See `ui_plan.md` for the approach.
 - The first small batch of real art, arriving near the end of the run.
+
+**`round_ui.gd` needs to die sooner rather than later.** It is explicitly throwaway, and A1 has
+already bolted a wave counter and a breather panel onto it. Every further bolt-on is work done
+twice. `ui_plan.md`'s UI-0 (theme) has no dependencies and can land at any point; the ability bar
+was deliberately built as its own scene for exactly this reason.
+
+**Two entity folders still have no placeholder PNG of their own** — the boulder and the goblin both
+borrow the shared `1_pixel.png`. The artist brief is "replace the PNG in each entity folder", so
+those two need one before the commission goes out.
 
 ---
 

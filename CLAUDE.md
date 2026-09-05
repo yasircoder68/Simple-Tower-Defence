@@ -33,7 +33,12 @@ theme. It is still in git history if ever needed. Every sprite in the running ga
 were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
 
 **In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
-rename, and the three remaining abilities. Step 0 shipped; see that file for progress.
+rename, and the three remaining abilities. R-0/R-1/R-2 shipped; see that file for progress.
+
+**Planned next: [a3_plan.md](a3_plan.md)** — the horde engine, targeting 1500 concurrent enemies,
+bundling the TileMapLayer migration and ending with overlapping waves. **Read its opening section
+before touching the separation code** — it overturns the diagnosis recorded under Performance
+below.
 
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
 [final_plan.md](final_plan.md)** — three release stages, 40/40/20 of remaining work. See Build
@@ -443,13 +448,30 @@ drops to 2–4.
 - Flow-field lookup / TileMap `local_to_map` calls (60 FPS with these alone)
 - Rendering and the physics broadphase (60 FPS with `_physics_process` disabled)
 
-**Recommended next attempt:** stop giving every enemy its own `_physics_process`. Move the
+> [!WARNING]
+> **The "recommended next attempt" below is disputed and probably wrong. Read
+> [a3_plan.md](a3_plan.md) before acting on it.** A per-enemy accounting done during A3 planning
+> found the cost is dominated by **16–25 `Vector2i`-keyed Dictionary operations and ~11 `Vector2i`
+> constructions per enemy per frame** — roughly 10,800 probes/frame at 600 enemies. A manager loop
+> removes **one** Callable dispatch out of that and touches none of the hashing. It is a genuine
+> win and a prerequisite for later work, but it is not the fix, and following it as written would
+> most likely produce a sixth consecutive "no change".
+>
+> The same accounting explains the 24-cap null result below: the nine-cell scaffolding is paid **in
+> full by an enemy with zero neighbours**, so no inner-loop cap can reduce it. This paragraph gets
+> rewritten with measured numbers at a3_plan's M-1.
+
+**Recommended next attempt (disputed — see above):** stop giving every enemy its own
+`_physics_process`. Move the
 whole horde into a single manager loop on `level_controller` that updates all enemies in one tight pass.
 That removes 600 per-node script invocations and 600 sets of cross-object `map.` dispatches
 per frame, which is the largest remaining structural cost. If that isn't enough, the horde
 needs to leave GDScript entirely (MultiMesh + a compute-style update, or GDExtension).
 
-Do not claim the perf problem is fixed without a measured 600-enemy screenshot.
+**Do not claim the perf problem is fixed without a measured 600-enemy screenshot** — and, from A3
+onward, a `us_per_enemy` figure from the bench harness. FPS alone is vsync-quantised: anything from
+3 ms to 16.6 ms of work reports "60", so an optimisation on the flat part of the curve reads as "no
+change" whether it worked or not. Only two rows of the table above carry information at all.
 
 ---
 
