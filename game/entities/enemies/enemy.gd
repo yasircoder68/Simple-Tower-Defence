@@ -291,5 +291,5 @@ func _die() -> void:
 ## despawn. Same gate as _die() — deliberately the same bool, not a second probe.
 func _escape() -> void:
 	if _has_round_contract:
-		map.on_enemy_escaped()
+		map.on_enemy_escaped(life_cost)
 	queue_free()

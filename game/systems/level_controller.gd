@@ -285,10 +285,19 @@ func on_enemy_killed(silver_reward: int) -> void:
 
 ## An enemy reached the end unharmed. Costs a life instead of a silent
 ## despawn; no silver.
-func on_enemy_escaped() -> void:
+func on_enemy_escaped(life_cost: int = 1) -> void:
 	if round_state != RoundState.IN_ROUND:
 		return
-	base_health.lose_life()
+	base_health.lose_life(life_cost)
+
+	# EXACTLY 1, never life_cost. One spawned unit is one resolution unit;
+	# life_cost is a damage number, not a count.
+	#
+	# Decrementing by 3 for an ogre is the single most tempting wrong edit in
+	# this file. It would desync this counter from wave_manager.wave_remaining,
+	# which decrements once per resolution — and the round would end early. That
+	# is the "victory after wave 1" failure W-2 and W-3 each had to defeat,
+	# re-entering through a third door.
 	enemies_to_resolve -= 1
 	if base_health.lives <= 0:
 		_end_round(false)
