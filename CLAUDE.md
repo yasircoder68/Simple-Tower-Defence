@@ -57,6 +57,12 @@ UI and HUD work: [ui_plan.md](ui_plan.md). Zero-asset theme system; its UI-0 sta
 dependencies and reorders the roadmap slightly (theme first, then each manager with its HUD
 piece, rather than deferring all interface work to step 8).
 
+**This is now a release blocker, not a polish task.** A1 is built and exported but has not
+shipped, because the game has no main menu, no pause, and an upgrade panel bolted to the play
+screen. `alpha_plan.md` gained a dedicated stage — **A4 — MVP UI** — to fix exactly that, which
+renumbered the old A4/A5 to A5/A6. Note `ui_plan.md` still references a "souls" currency that was
+removed by decision; silver and gold only.
+
 ---
 
 ## Economy (decided 2026-09-03 — supersedes implementation_plan.md §1.1)

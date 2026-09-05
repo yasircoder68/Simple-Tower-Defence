@@ -22,6 +22,35 @@ The first release should go out **soon**. The loop already works — place tower
 earn silver, buy upgrades, replay. What it lacks is escalation and anything to do while a round
 runs. That is a small gap, and closing it is enough to justify a first public build.
 
+> [!IMPORTANT]
+> **That last paragraph has not survived contact.** A1 closed exactly the gap it names — escalation
+> and a live input — and the build still has not gone out, because the *real* blocker turned out to
+> be interface, not mechanics: no main menu, no pause, and an upgrade panel that reads as a debug
+> readout. That is what **A4 — MVP UI** now exists to fix.
+>
+> The tension worth naming: under the current ordering nothing ships until A4, which sits behind
+> A2 and A3 — **20% of remaining work**. A1+A2+A3 then arrive as one large release, which is
+> precisely what this section argues against. That may well be the right trade (shipping a thin
+> game once badly is worse than shipping a thick one once well), but it should be a decision
+> rather than a drift.
+
+---
+
+## The run at a glance
+
+| Stage | Headline | Share | State |
+|---|---|---|---|
+| **A1** | "it's a game now" — waves + the boulder | 6% | ✅ built, exported, **not shipped** |
+| **A2** | enemy variety + the three remaining abilities | 8% | 🚧 renames done, enemy/ability tracks pending |
+| **A3** | big battles — the horde engine | 12% | planned ([a3_plan.md](a3_plan.md)) |
+| **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | sketch below; **unblocks shipping** |
+| **A5** | more ways to build — towers, gold sinks, slots | ~5% | sketch |
+| **A6** | a campaign shape — level select, more levels | ~4% | sketch |
+| — | running throughout: first art batch | ~2% | |
+
+Adding A4 as its own stage pushed alpha's share of remaining work from 40% to roughly 43%. The
+shares are estimates and A5 absorbed a reduction, since some of its interface cost moved into A4.
+
 ---
 
 ## The release run
@@ -129,7 +158,47 @@ and don't leave it past the first batch of new levels.
 what actually makes it *overwhelming*, and [a1_plan.md](a1_plan.md) deferred it to exactly this
 point. That, not the engine, is the shippable headline.
 
-### A4 — more ways to build · 7%
+### A4 — MVP UI · ~6% · **the stage that unblocks shipping**
+
+*Sketch only — planned properly after A2 and A3 land.*
+
+**This is why nothing has shipped yet.** A1 is built and exported, but the game opens straight
+into a level with no main menu, no way to pause, and an upgrade panel bolted to the side of the
+play screen as a debug readout. That is not a build you put in front of strangers, and alpha's
+whole premise is putting builds in front of strangers.
+
+The three gaps, in the order a player hits them:
+
+- **Main menu** — Begin Defense / Upgrades / Quit. Today `level_01.tscn` *is* the main scene.
+- **Pause menu** — Resume / Restart / Quit to menu. There is currently no pause at all.
+- **The upgrade shop as its own screen**, not a panel wedged beside the tower sidebar.
+
+Plus the two that fall out of doing those properly:
+
+- **UI-0, the theme foundation** — `ui_plan.md`'s palette + generated `Theme`. It has **no
+  dependencies**, gates everything else, and is the cheapest item in the stage.
+- **`round_ui.gd` finally dies.** It is explicitly throwaway and has now had A1's wave counter and
+  breather panel bolted onto it. Every further bolt-on is work done twice.
+
+**Four things to know before planning this in detail:**
+
+1. **The upgrade shop needs no new backend.** `TowerStats.try_upgrade()`, `get_upgrade_cost()`,
+   `PlayerData.upgrade_changed` and the silver curve all exist and are verified. A4 is relocation
+   and reskin, not new economy.
+2. **Pause is not free.** `wave_manager` owns two `Timer`s, `ability_manager` ticks cooldowns in
+   `_process`, and the boulder payload runs a `Tween`. Each needs a deliberate `process_mode`, or
+   pausing either fails to stop the horde or permanently strands a cooldown. Decide the policy
+   once, for all of them.
+3. **A main menu changes the main scene**, and therefore `/root/map1` — the path every MCP
+   verification in these docs and in CLAUDE.md's Gotchas is written against. Expect a docs pass.
+4. **Upgrades are `PRE_ROUND`-only, enforced in two places** (the buttons' `disabled` flag and an
+   authoritative guard in the handler). Moving them to a menu-level screen changes where "between
+   rounds" is even defined — rethink the guard rather than porting it.
+
+*Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency. That was removed by decision —
+silver and gold only. Fix when A4 is planned.*
+
+### A5 — more ways to build · ~5% *(was A4)*
 
 - Additional tower types beyond the starting two, so loadout becomes a real decision.
 - **Gold finally does something.** Today gold is earned once per level and can be spent on
@@ -145,10 +214,12 @@ it silently ignores every upgrade the player buys. And more placement slots is a
 increase: A1 measured that a 4-tower choke already wins passively at `difficulty_scale` 1.0, so
 this needs a re-tune, not just a number bump.
 
-### A5 — a campaign shape · 4%
+### A6 — a campaign shape · ~4% *(was A5)*
 
 - Level select.
 - A handful of rough levels, so progression has somewhere to go.
+
+**Level select needs A4's menu system** — it is a screen, and screens arrive at A4.
 
 **The lever already exists:** `wave_count` + `difficulty_scale` per level means a new level is two
 numbers against one authored curve, not a bespoke wave table.
@@ -161,16 +232,13 @@ geometry is the real knob.
 **Blocked on A3's TileMapLayer migration** — don't author fifteen levels against a deprecated API
 (CLAUDE.md Known issue 5).
 
-### Running throughout · 3%
+### Running throughout · ~2%
 
-- A functional theme and HUD, replacing the throwaway debug interface that exists today. Not
-  pretty — just no longer embarrassing. See `ui_plan.md` for the approach.
 - The first small batch of real art, arriving near the end of the run.
 
-**`round_ui.gd` needs to die sooner rather than later.** It is explicitly throwaway, and A1 has
-already bolted a wave counter and a breather panel onto it. Every further bolt-on is work done
-twice. `ui_plan.md`'s UI-0 (theme) has no dependencies and can land at any point; the ability bar
-was deliberately built as its own scene for exactly this reason.
+*(The theme and HUD moved out of here and into **A4**, where they became the thing blocking
+release rather than a background task. The ability bar was already built as its own scene for
+exactly this reason and survives A4 intact.)*
 
 **Two entity folders still have no placeholder PNG of their own** — the boulder and the goblin both
 borrow the shared `1_pixel.png`. The artist brief is "replace the PNG in each entity folder", so
