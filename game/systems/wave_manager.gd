@@ -22,7 +22,13 @@ signal all_waves_complete
 ## cyclic reference GDScript refuses. Key sets are checked to match at setup().
 const ENEMY_SCENES := {
 	"goblin": preload("res://entities/enemies/goblin/goblin.tscn"),
+	"skeleton": preload("res://entities/enemies/skeleton/skeleton.tscn"),
 }
+
+## Skeletons arrive as a squad rather than a trickle. With spawn intervals of
+## 0.04–0.15s a run of 4 lands near-simultaneously, which is what makes them
+## read as a rush instead of four unlucky fast goblins.
+const SKELETON_PACK := 4
 
 ## The authored escalation curve. Composition and spawn interval — enemy HP and
 ## speed are constant across waves by decision (a1_plan.md), so escalation is
@@ -31,12 +37,31 @@ const ENEMY_SCENES := {
 ## `count` is NOT authored here. It is derived in _build_waves() by summing the
 ## groups, so the wave's total and its spawn plan can never disagree — see the
 ## check in _start_wave(), and why that matters.
+## Skeletons REPLACE goblins rather than adding to them, so every wave's total
+## stays exactly on the authored curve (20/30/45/65/95). E-4 is a variety change,
+## not a difficulty change — keeping the totals fixed is what lets the round
+## still be compared against A1's tuning instead of needing a fresh baseline.
+##
+## Wave 1 is deliberately pure goblin: the first thing a player meets should
+## teach the basic fight before it gains an exception.
 const WAVE_TABLE := [
 	{"groups": [{"type": "goblin", "count": 20}], "spawn_interval": 0.15},
-	{"groups": [{"type": "goblin", "count": 30}], "spawn_interval": 0.12},
-	{"groups": [{"type": "goblin", "count": 45}], "spawn_interval": 0.09},
-	{"groups": [{"type": "goblin", "count": 65}], "spawn_interval": 0.06},
-	{"groups": [{"type": "goblin", "count": 95}], "spawn_interval": 0.04},
+	{"groups": [
+		{"type": "goblin", "count": 26},
+		{"type": "skeleton", "count": 4, "pack": SKELETON_PACK},
+	], "spawn_interval": 0.12},
+	{"groups": [
+		{"type": "goblin", "count": 37},
+		{"type": "skeleton", "count": 8, "pack": SKELETON_PACK},
+	], "spawn_interval": 0.09},
+	{"groups": [
+		{"type": "goblin", "count": 53},
+		{"type": "skeleton", "count": 12, "pack": SKELETON_PACK},
+	], "spawn_interval": 0.06},
+	{"groups": [
+		{"type": "goblin", "count": 79},
+		{"type": "skeleton", "count": 16, "pack": SKELETON_PACK},
+	], "spawn_interval": 0.04},
 ]
 
 ## A Timer cannot fire more than once per physics frame (16.7ms at 60Hz), so
@@ -169,23 +194,50 @@ func _build_waves() -> Array:
 ## Largest-remainder: at each slot, release from whichever group is furthest
 ## behind its fair share. With one group it degenerates to "all goblins", which
 ## is exactly the pre-E-3 behaviour.
+## Groups may declare a `pack`, which makes their members emit in contiguous
+## runs rather than singly — the existing 0.04–0.15s spawn interval then
+## delivers a pack near-simultaneously, which is what makes skeletons arrive as
+## a squad. Distribution therefore runs over CHUNKS, not individuals: a group of
+## 8 with pack 4 is two chunks competing for slots, and each chunk expands to
+## four spawns. With pack 1 (the default) a chunk is one enemy and this
+## degenerates exactly to the pre-E-4 behaviour.
 func _build_spawn_plan(groups: Array, total: int) -> Array:
-	var plan: Array = []
-	var placed: Array = []
-	placed.resize(groups.size())
-	placed.fill(0)
+	var chunks_left: Array = []
+	var placed_chunks: Array = []
+	var remaining: Array = []
+	var total_chunks := 0
 
-	for slot in range(total):
+	for g in groups:
+		var pack: int = maxi(1, g.get("pack", 1))
+		var count: int = g["count"]
+		var chunks: int = int(ceil(float(count) / float(pack)))
+		chunks_left.append(chunks)
+		placed_chunks.append(0)
+		remaining.append(count)
+		total_chunks += chunks
+
+	var plan: Array = []
+	for slot in range(total_chunks):
 		var best := 0
 		var best_deficit := -INF
 		for gi in range(groups.size()):
-			var fair_share: float = float(groups[gi]["count"]) * float(slot + 1) / float(total)
-			var deficit: float = fair_share - float(placed[gi])
+			if remaining[gi] <= 0:
+				continue
+			var fair_share: float = float(chunks_left[gi]) * float(slot + 1) / float(total_chunks)
+			var deficit: float = fair_share - float(placed_chunks[gi])
 			if deficit > best_deficit:
 				best_deficit = deficit
 				best = gi
-		plan.append(groups[best]["type"])
-		placed[best] += 1
+
+		var pack_size: int = maxi(1, groups[best].get("pack", 1))
+		# The final chunk of a group is short whenever count is not a multiple
+		# of pack — mini() is what keeps the plan's length equal to the derived
+		# count rather than overshooting it.
+		var emit: int = mini(pack_size, remaining[best])
+		for _i in range(emit):
+			plan.append(groups[best]["type"])
+		remaining[best] -= emit
+		placed_chunks[best] += 1
 
 	return plan
 

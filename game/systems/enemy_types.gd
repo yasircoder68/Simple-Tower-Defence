@@ -44,6 +44,19 @@ const TYPES := {
 	## for the shipped game. Carrying either would silently double enemy speed
 	## and re-tune the whole difficulty curve.
 	"goblin": {},
+
+	## The rusher. Frail and fast, and it IGNORES SEPARATION — which is what
+	## makes it slide through a goblin crowd instead of queueing behind it, so
+	## it reaches the choke first and punishes slow-firing towers.
+	##
+	## ignore_separation is an early-out, so a skeleton is CHEAPER per frame
+	## than a goblin, not dearer. Worth knowing before assuming a rusher wave
+	## costs more to simulate.
+	"skeleton": {
+		"max_hp": 6,
+		"speed": 280.0,
+		"ignore_separation": true,
+	},
 }
 
 

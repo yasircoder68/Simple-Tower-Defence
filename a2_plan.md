@@ -13,7 +13,8 @@ Progress against the Sequencing table below:
 | 3 · E-1 enemy base + registry | ✅ **done and verified** |
 | 4 · E-2 life-cost channel | ✅ **done and verified** |
 | 5 · E-3 wave composition | ✅ **done and verified** |
-| 6–7 · enemy track (E-4 skeleton, E-5 ogre) | not started |
+| 6 · E-4 skeleton | ✅ **done and verified** |
+| 7 · E-5 ogre | not started |
 | 8–10 · ability track (A-1..A-3) | not started |
 | 11 · tune + docs | not started |
 
