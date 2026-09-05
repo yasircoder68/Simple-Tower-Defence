@@ -10,6 +10,14 @@ One machine, editor-hosted playtest, `packed` config (20 px lattice), 600 enemie
 |---|---|---|---|---|---|---|---|---|---|---|
 | M-0 | V1 | 600 | packed | 16.67 | 50.00 | 15.77 | 21.79 | **26.3** | 180 | 1843 |
 | M-0 | V0 | 600 | packed | 133.33 | 144.51 | 35.59 | 52.38 | **59.3** | 180 | 1843 |
+| M-0 · post-E-1 | V0 | 600 | packed | 133.33 | 142.85 | 36.38 | 52.39 | **60.6** | 180 | 1843 |
+
+**On the post-E-1 row: +1.3 µs/enemy (+2.2%) against the pre-E-1 baseline, and I cannot honestly
+call that noise, because the noise floor was never established** (M-0 called for three identical
+runs; two were taken). E-1 did add two real operations to the hot path — a `not
+ignore_separation` test and a `* separation_weight` multiply — so a small genuine cost is expected
+and acceptable at this stage. **Establish the noise floor before M-1**, or every subsequent
+"no change" is the same unbounded claim that cost this project five previous attempts.
 
 **The harness reproduces both of the numbers this project already trusted**, which is the
 self-test it had to pass before being believed:

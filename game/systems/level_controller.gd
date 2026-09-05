@@ -2,7 +2,13 @@ extends Node2D
 
 # Enemies are pushed apart by this radius. It also sets the spatial grid cell
 # size, so one grid lookup covers every neighbour that could possibly matter.
-const SEPARATION_RADIUS := 32.0
+#
+# Single-sourced from Enemy rather than duplicated here. These two MUST be equal
+# — this side buckets positions into cells, and the enemy side derives its own
+# cell key from the same number and scans only a 3x3 block. If they ever drifted
+# apart, enemies would read the wrong cells and separation would quietly go
+# wrong with nothing to signal it. One definition makes that unrepresentable.
+const SEPARATION_RADIUS := Enemy.SEPARATION_RADIUS
 
 ## Identifies this level for PlayerData's gold-once ledger. Must be unique
 ## across every level that ever ships.

@@ -9,10 +9,11 @@ Progress against the Sequencing table below:
 | 0 · R-0 harden the contract | ✅ **done and verified** — see *R-0: what actually shipped* |
 | 1 · R-1 machinery rename → `enemy_*` | ✅ **done and verified** |
 | 2 · R-2 entity rename → goblin | ✅ **done and verified** |
-| 3–7 · enemy track (E-1..E-5) | not started |
+| **+ · M-0 bench harness** | ✅ **built and verified** — added scope, see below |
+| 3 · E-1 enemy base + registry | ✅ **done and verified** |
+| 4–7 · enemy track (E-2..E-5) | not started |
 | 8–10 · ability track (A-1..A-3) | not started |
 | 11 · tune + docs | not started |
-| **+ · M-0 bench harness** | **added scope — see below** |
 
 ### Added scope: the bench harness (A3's M-0, pulled forward)
 
@@ -337,7 +338,7 @@ Twelve commits. **Every one leaves the game launchable and playable.**
 | 0 | ✅ **R-0 · Harden the contract.** Group joined in code via one const; guards → one cached probe + partial-contract `push_error`; map-side self-check. **No rename.** | `zombie.gd`, `zombie.tscn`, `boulder.gd`, `fire.gd`, `arrow.gd`, `archer.gd`, `wizard.gd`, `level_controller.gd` | ✅ Plays identically; net verified by deliberately breaking it. Self-check is **unconditional**, not gated on `debug_logging` as originally specced — a drifted contract should be loud in every build, and it costs one `has_method()` loop at startup. |
 | 1 | **R-1 · Machinery rename** → `enemy_*`, group `"enemy"`. Mechanical. | same 12 files | Grep for machinery names returns 0. Full round **on level_01, not the testbed**, specifically exercising the **escape** path (no towers, watch lives drain). |
 | 2 | **R-2 · Entity rename** → goblin. Folder, files, node name, path strings, testbed exports. | `entities/enemies/goblin/*`, `wave_manager.gd`, `clean_area.gd/.tscn` | `grep -ri zombie game/ --exclude-dir=addons` returns 0. Round identical; testbed launches. |
-| 3 | **E-1 · Enemy base + registry, goblin only.** `enemy_types.gd`, stats resolved at `_ready()`, new flags at defaults, hooks empty, `SEPARATION_RADIUS` single-sourced. (`class_name Enemy` already landed in R-0 — it was the enabler for `Enemy.GROUP`.) | `enemy.gd`, `enemy_types.gd`, `goblin.tscn`, `level_controller.gd` | A round is **numerically identical**: same result, comparable lives, 60 FPS at peak. Goblin resolves to speed **100**, hp 10, silver 2. |
+| 3 | ✅ **E-1 · Enemy base + registry, goblin only.** `enemy_types.gd`, stats resolved at `_ready()`, new flags at defaults, hooks empty, `SEPARATION_RADIUS` single-sourced. (`class_name Enemy` already landed in R-0 — it was the enabler for `Enemy.GROUP`.) | `enemy.gd`, `enemy_types.gd`, `goblin.tscn`, `level_controller.gd` | A round is **numerically identical**: same result, comparable lives, 60 FPS at peak. Goblin resolves to speed **100**, hp 10, silver 2. |
 | 4 | **E-2 · Life-cost channel.** `on_enemy_escaped(life_cost := 1)`. Purely additive. | `enemy.gd`, `level_controller.gd` | `life_cost = 3` on a live goblin costs 3 lives **and decrements `enemies_to_resolve` by exactly 1**. |
 | 5 | **E-3 · Wave composition.** `groups`, derived `count`, spawn plan array. Still 100% goblin. | `wave_manager.gd` | Totals match pre-change exactly (408 at scale 1.6). `count == plan.size()` asserted. |
 | 6 | **E-4 · Skeleton.** Registry entry, `.tscn`, `ignore_separation`, pack runs. Waves 2+. | `enemy_types.gd`, `skeleton.tscn`, `wave_manager.gd` | Skeletons visibly slide through the crowd and reach the choke first. FPS holds. |

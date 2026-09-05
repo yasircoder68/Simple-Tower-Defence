@@ -60,10 +60,31 @@ const MAX_SEPARATION_NEIGHBORS := 10
 const MAX_SEPARATION_CHECKS := 24
 const ARRIVAL_RADIUS := 30.0
 
-@export var speed: float = 200.0
+const EnemyTypes := preload("res://systems/enemy_types.gd")
+
+## Which row of EnemyTypes.TYPES this scene is. The ONLY stat-ish thing a
+## `.tscn` carries — everything else is resolved from the registry at spawn, so
+## goblin/skeleton/ogre are three scenes pointing at this one script.
+@export var enemy_id: String = "goblin"
+
+# --- Resolved from EnemyTypes at _ready(). Deliberately NOT @export ----------
+#
+# Same rule as tower stats: no @export, nothing baked into a .tscn. An inspector
+# value here would silently win over the registry and be invisible to whoever
+# later tunes the numbers in one place and wonders why nothing moved.
+
+var max_hp: int = 10
+var speed: float = 100.0
 ## Silver the round controller earns via PlayerData when this enemy is
 ## KILLED (not when it escapes — see _die() vs _escape() below).
-@export var silver_reward: int = 2
+var silver_reward: int = 2
+## Lives this costs on escape. Carried by E-2; every enemy costs 1 until then.
+var life_cost: int = 1
+## Skips push-apart entirely — an early-out, so this is cheaper, not dearer.
+var ignore_separation: bool = false
+## Scales how hard THIS enemy is pushed by others. It still pushes them
+## normally, since it still contributes its position to the grid.
+var separation_weight: float = 1.0
 
 var hp: int = 10
 
@@ -80,10 +101,49 @@ var _has_round_contract: bool = false
 
 func _ready() -> void:
 	add_to_group(GROUP)
+	_resolve_stats()
 	_has_round_contract = _probe_round_contract()
 
 	if "enemy_grid" in map:
 		_grid = map.enemy_grid
+
+	_on_spawn()
+
+
+## Pulls this enemy's numbers from the registry. Resolved once, at spawn —
+## exactly like archer.gd/wizard.gd resolving from TowerStats. Nothing re-reads
+## it later, so an enemy already on the board keeps the numbers it spawned with.
+func _resolve_stats() -> void:
+	var stats := EnemyTypes.get_stats(enemy_id)
+	max_hp = stats["max_hp"]
+	speed = stats["speed"]
+	silver_reward = stats["silver_reward"]
+	life_cost = stats["life_cost"]
+	ignore_separation = stats["ignore_separation"]
+	separation_weight = stats["separation_weight"]
+	hp = max_hp
+
+
+# --- Behaviour hooks, empty in the base ---------------------------------
+#
+# Event-level, never per-frame. A per-frame virtual would be a dispatch A3's
+# manager loop then has to untangle; type differences that survive that rewrite
+# are DATA the loop can branch on (ignore_separation, separation_weight), not
+# methods it must call. Keep it that way.
+#
+# These exist so the first enemy with genuine behaviour — the Troll's enrage at
+# 50% HP — costs a six-line subclass instead of another @export on this file.
+
+func _on_spawn() -> void:
+	pass
+
+
+func _on_damaged(_amount: int) -> void:
+	pass
+
+
+func _on_death() -> void:
+	pass
 
 
 ## Asks the whole contract at once, rather than each call site guarding itself.
@@ -132,8 +192,11 @@ func _physics_process(delta: float) -> void:
 				return
 
 	var separation_push := Vector2.ZERO
-	if bench_variant < BENCH_NO_SEPARATION:
-		separation_push = _separation()
+	# ignore_separation is checked FIRST because it is an early-out: an enemy
+	# that ignores the crowd never enters the 3x3 scan at all, so it is cheaper
+	# than one that does.
+	if not ignore_separation and bench_variant < BENCH_NO_SEPARATION:
+		separation_push = _separation() * separation_weight
 
 	if bench_variant >= BENCH_NO_MOVE:
 		return
@@ -209,6 +272,7 @@ func take_damage(amount: int) -> void:
 	if hp <= 0:
 		return
 	hp -= amount
+	_on_damaged(amount)
 	if hp <= 0:
 		_die()
 
@@ -217,6 +281,7 @@ func take_damage(amount: int) -> void:
 ## Gated on the contract probe rather than a local has_method(), so this and
 ## _escape() can never disagree about whether the map is scoring.
 func _die() -> void:
+	_on_death()
 	if _has_round_contract:
 		map.on_enemy_killed(silver_reward)
 	queue_free()
