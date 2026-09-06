@@ -61,6 +61,9 @@ var phase: Phase = Phase.IDLE
 var enemy_count: int = 0
 var config: String = ""
 var variant: int = 0
+## Whether the current run suppressed the global_position write. Reported in the
+## variant column rather than a new one, so existing result rows stay readable.
+var skip_write: bool = false
 
 # --- Results. All readable via runtime_get_script_vars. ---------------------
 
@@ -104,7 +107,10 @@ func setup(map_ref: Node2D) -> void:
 ## scatter, takes 2.5 minutes, and its population DECAYS as enemies escape —
 ## which destroys the denominator of us_per_enemy. A benchmark whose n changes
 ## while it runs is not measuring what it claims to.
-func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_FULL) -> bool:
+## skip_position_write is orthogonal to `ablation` — see Enemy's static of the
+## same name. It is recorded in the result_line's variant column (V0-nw) so a row
+## measured with it can never be compared against one without it by mistake.
+func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_FULL, skip_position_write: bool = false) -> bool:
 	if phase != Phase.IDLE:
 		push_error("bench: already running")
 		return false
@@ -123,6 +129,8 @@ func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_
 	config = config_name
 	variant = ablation
 	Enemy.bench_variant = ablation
+	skip_write = skip_position_write
+	Enemy.bench_skip_position_write = skip_position_write
 
 	_spawn_lattice(count, CONFIGS[config_name])
 
@@ -138,6 +146,11 @@ func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_
 func reset() -> void:
 	phase = Phase.IDLE
 	Enemy.bench_variant = Enemy.BENCH_FULL
+	# Reset alongside bench_variant for the same reason: both are static, so a
+	# run that ends without clearing them leaves the horde crippled for the
+	# rest of the session.
+	Enemy.bench_skip_position_write = false
+	skip_write = false
 	_teardown_round()
 
 
@@ -186,8 +199,9 @@ func _finish() -> void:
 
 	# Three significant figures. Anything finer than the noise floor is not a
 	# result — see a3_plan.md.
-	result_line = "| %s | V%d | %d | %s | %.2f | %.2f | %.2f | %.2f | %.1f | %d | %d |" % [
-		BENCH_TAG, variant, enemy_count, config,
+	result_line = "| %s | %s | %d | %s | %.2f | %.2f | %.2f | %.2f | %.1f | %d | %d |" % [
+		BENCH_TAG, ("V%d-nw" % variant) if skip_write else ("V%d" % variant),
+		enemy_count, config,
 		frame_ms_p50, frame_ms_p95, phys_ms_p50, phys_ms_p95,
 		us_per_enemy, phys_pairs, node_count,
 	]

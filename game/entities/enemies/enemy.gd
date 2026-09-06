@@ -51,6 +51,21 @@ const BENCH_NO_GRID := 5
 ## iterating the horde.
 static var bench_variant: int = BENCH_FULL
 
+## Deliberately ORTHOGONAL to the V0-V5 ladder rather than a sixth rung, because
+## the ladder is ordinal — each variant strictly does less than the one below —
+## and this needs to do MORE than V3 (it keeps is_wall) while doing LESS than V0
+## (it skips the position write). No single ordinal value can express that.
+##
+## Exists to answer one question M-1 could not: "is_wall() + the move" measured
+## 17.5 us/enemy, 27% of the frame, and the move ends in a global_position
+## assignment on an Area2D — which forces a PhysicsServer2D transform sync per
+## enemy per frame. This splits that 17.5 between the wall test and the sync,
+## and the answer decides whether a3_plan's S-1 or P-1 leads the ladder.
+##
+## NOTE the horde does not move while this is set, so it is a MEASUREMENT tool
+## only — never leave it true, exactly as with bench_variant.
+static var bench_skip_position_write: bool = false
+
 const SEPARATION_RADIUS := 32.0
 const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
 const MAX_SEPARATION_NEIGHBORS := 10
@@ -232,9 +247,14 @@ func _separation() -> Vector2:
 	for dx in range(-1, 2):
 		for dy in range(-1, 2):
 			var key := base + Vector2i(dx, dy)
-			if not _grid.has(key):
+			# ONE hash, not two. has()-then-[] hashes the same key twice, and
+			# this runs nine times per enemy per frame whether or not the cell
+			# has anything in it. Untyped on purpose: get() returns null on a
+			# miss, so it cannot be annotated Array.
+			var cell = _grid.get(key)
+			if cell == null:
 				continue
-			for other_pos in _grid[key]:
+			for other_pos in cell:
 				checks += 1
 				if checks > MAX_SEPARATION_CHECKS:
 					return separation
@@ -254,18 +274,25 @@ func _separation() -> Vector2:
 # Walk into the wall, and if that fails try each axis on its own so the horde
 # slides along surfaces instead of piling up against them.
 func _move_with_wall_slide(step: Vector2) -> void:
+	# Every branch below is guarded, not just the first, so the flag means
+	# "no position write at all" rather than "no position write on open
+	# ground" — a partial guard would leave wall-adjacent enemies still
+	# paying the sync and quietly understate what it costs.
 	if not map.is_wall(global_position + step):
-		global_position += step
+		if not bench_skip_position_write:
+			global_position += step
 		return
 
 	var slide_x := global_position + Vector2(step.x, 0)
 	if not map.is_wall(slide_x):
-		global_position = slide_x
+		if not bench_skip_position_write:
+			global_position = slide_x
 		return
 
 	var slide_y := global_position + Vector2(0, step.y)
 	if not map.is_wall(slide_y):
-		global_position = slide_y
+		if not bench_skip_position_write:
+			global_position = slide_y
 
 
 func take_damage(amount: int) -> void:

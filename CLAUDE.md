@@ -580,30 +580,37 @@ drops to 2–4.
 > | Cost | µs/enemy | Share |
 > |---|---|---|
 > | Separation | **25.5** | 39% |
-> | `is_wall()` + the move | **17.5** | 27% |
+> | **`global_position` write → Area2D transform sync** | **12.2** | 19% |
 > | Spatial-grid rebuild | **11.5** | 18% |
-> | Dispatch + Area2D transform sync + group scan | 6.5 | 10% |
+> | Dispatch + broadphase presence + group scan | 6.5 | 10% |
+> | `is_wall()` + normalize + call overhead | ~5.3 | 8% |
 > | Flow-field lookup (incl. its 2 `tile_map.` calls) | 3.8 | 6% |
 > | **Total (V0)** | **65.6** | 100% |
 >
 > **A manager loop can only touch the 6.5 floor, and not all of it — at most ~10%,** against a
 > target that needs 83%. It remains a prerequisite for later work; it is not the fix.
 >
-> **The biggest surprise is `is_wall()` + the move at 27%.** The move ends in a `global_position`
-> assignment on an **Area2D**, forcing a PhysicsServer2D transform sync per enemy per frame — so
-> **retiring the physics presence (a3_plan's S-1) is plausibly the largest single win available**,
-> and it was filed as a side track. Confirm with a variant that keeps `is_wall()` but skips the
-> assignment before building it.
+> **The biggest surprise: assigning `global_position` costs 12.2 µs/enemy — 19% of the frame.**
+> Measured by an ablation that keeps `is_wall()` but skips the write. The enemies are *frozen* in
+> that test, so it is writing the same value it already holds — **the cost is the PhysicsServer2D
+> transform sync an Area2D forces, not the arithmetic.** Retiring the physics presence (a3_plan's
+> S-1) also removes the enemy from the broadphase, so its total target is **up to ~18 µs/enemy
+> (27%)** — the largest win after separation, and it was filed as a side track.
 >
 > The 24-cap null result is explained: the nine-cell scaffolding is paid **in full by an enemy with
 > zero neighbours**, so no inner-loop cap can reduce it.
 
 **Next attempts, ranked by measurement rather than intuition** (a3_plan's ladder):
 
-1. **Separation** — 25.5 µs/enemy. Flatten the grid (G-1); test the premise first with the
-   four-line single-probe change (P-2).
-2. **The move's physics sync** — up to 17.5 µs/enemy. Retire the Area2D presence (S-1).
+1. **Separation** — 25.5 µs/enemy. **But not by flattening the grid to kill hashing:** P-2 did
+   exactly that experiment (single-probe `get()` in place of `has()`-then-`[]`) and measured
+   **−3.9%, inside the noise band**. Hashing is not separation's dominant cost. The remaining
+   suspects are the inner-loop arithmetic and the Variant boxing on every position read out of an
+   untyped Array. Re-target before spending a commit.
+2. **The Area2D presence** — up to ~18 µs/enemy (12.2 position write + broadphase). Retire it (S-1).
 3. **Grid rebuild** — 11.5 µs/enemy. Persistent buckets + an enemy registry (P-3).
+4. **Cell conversion** — ~9 µs/enemy, but **mostly inside `is_wall`, not the flow lookup** (P-1).
+   An implementation that only caches `get_flow_direction` captures less than half of it.
 
 Even with separation made *entirely free* the loop still costs 40.1 µs/enemy, against the ≤11.1
 that 1500 enemies would need — so the non-separation path needs a 3.6× reduction on its own. If
@@ -620,6 +627,13 @@ GDExtension).
 > **Restart the game between every measurement.** Running an ablation ladder back-to-back would
 > confound the degradation with the variant and produce a confidently *inverted* table — the
 > least-work variant, measured last, would look slowest.
+>
+> **±4% was optimistic.** A second triple (V0-nw: 58.3 / 50.2 / 51.7) spread 15%. Treat the
+> first-run floor as **±8%**, and take three runs for any change predicted below ~15%.
+>
+> **There is also ~14% session-level drift.** Two V0 triples on effectively identical code, hours
+> apart, meaned 65.6 and 56.3. **Only compare runs from the same sitting** — re-measure the
+> "before" immediately before every change, however recently you measured it.
 
 **Do not claim the perf problem is fixed without a measured 600-enemy screenshot** — and, from A3
 onward, a `us_per_enemy` figure from the bench harness. FPS alone is vsync-quantised: anything from

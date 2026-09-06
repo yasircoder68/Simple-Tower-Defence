@@ -1,7 +1,7 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: M-0 built in A2. M-1 COMPLETE (2026-09-06) — see *M-1 results* below. P-1 onward not
-started, and the ladder has been re-ranked by measurement.**
+**Status: M-0 built in A2. M-1 and P-2 COMPLETE (2026-09-06). The ladder has been re-ranked by
+measurement, and P-2 REFUTED G-1's premise — see *P-2 result* below before building G-1.**
 
 > [!WARNING]
 > **Everything in this section below the M-1 results is superseded.** The 59.3 / 60.6 rows and the
@@ -63,8 +63,15 @@ Three identical V0 runs back-to-back gave **67.5 → 98.3 → 94.3**. A second p
 recover it**, which rules out thermal. Node count is constant at 1845 and the lattice is frozen, so
 it is neither leaked nodes nor positional drift.
 
-**First runs, across three separate processes: 62.6 / 66.7 / 67.5 — a ±4% spread.** That is the
-real noise floor, and it is perfectly usable. Any run that is not the first in its process is not.
+**First runs, across three separate processes: 62.6 / 66.7 / 67.5 — a ±3.7% spread.** Any run that
+is not the first in its process is not usable at all.
+
+**That ±3.7% was optimistic, and a second triple corrected it.** Three first-run V0-nw measurements
+gave **58.3 / 50.2 / 51.7 — a 15% range (±7.6%)**, twice as wide. Taking the wider of the two, the
+working first-run noise floor is **±8%**, not ±4%. Recorded because the narrower figure was quoted
+in this document within the hour of being measured, and a noise floor derived from one triple is
+exactly the unbounded claim this plan exists to prevent. **Any rung predicting less than ~15%
+improvement needs three runs, not one.**
 
 **This is the finding that saves the stage.** Had the ladder been run V0→V5 back-to-back as this
 plan specified, the degradation would have been **perfectly confounded with the variant**: V5 does
@@ -88,6 +95,72 @@ removes the degradation, that is the answer.
 2. `node_count` drifted 1845 → 1860 mid-session, so the harness is not perfectly isolated from
    whatever else the scene is doing.
 
+### V0-nw — splitting "is_wall + the move"
+
+M-1 left 17.5 µs/enemy (27%) attributed to "`is_wall()` + the move" without saying which. A new
+ablation answers it: `Enemy.bench_skip_position_write`, deliberately **orthogonal** to the ordinal
+V0–V5 ladder, because it must do *more* than V3 (it keeps `is_wall`) while doing *less* than V0
+(it skips the position write) — something no ordinal rung can express.
+
+| Measurement | µs/enemy |
+|---|---|
+| V0 (mean of 62.6 / 66.7 / 67.5) | 65.6 |
+| V0-nw (mean of 58.3 / 50.2 / 51.7) | 53.4 |
+| **Position write → PhysicsServer2D transform sync** | **12.2 (19%)** |
+| Remainder of the 17.5: `is_wall` + normalize + call overhead | ~5.3 (8%) |
+
+**The `global_position` assignment on an Area2D costs 12.2 µs/enemy — 19% of the entire frame**,
+comparable to the whole grid rebuild. Note the enemies are *frozen* in the bench (`speed = 0`), so
+the step is a zero vector and the assignment is writing the same value it already holds. **It is
+not the arithmetic; it is the transform sync the assignment forces.**
+
+### P-2 result — G-1's premise is REFUTED
+
+P-2 was specced as a four-line, revertible **test of G-1's premise**, with an explicit rule
+attached: *if halving the probes does not roughly halve separation-attributable time, then hashing
+is not dominant, the flatten will not pay.* It was run exactly that way, and **the answer is no.**
+
+| | runs | mean |
+|---|---|---|
+| Before P-2 | 54.0 / 54.6 / 60.2 | **56.3** |
+| After P-2 | 58.2 / 52.6 / 51.4 | **54.1** |
+
+**−2.2 µs/enemy (−3.9%), with the ranges overlapping almost entirely** (54.0–60.2 vs 51.4–58.2).
+Separation costs 25.5 µs/enemy; if hashing dominated it, removing ~11 redundant hashes per enemy
+per frame should have shown 5–10. It did not.
+
+**Therefore: do not build G-1 as written.** Flattening the grid to eliminate hashing is aimed at a
+cost that has now been measured and is not there. That is a whole commit — rung 7 — saved by four
+lines, which is precisely the trade P-2 was designed to make.
+
+**Be careful what this does and does not refute.** It refutes *hashing* as separation's dominant
+cost. It does **not** refute every benefit of a flat grid: flattening would also remove the nine
+`Vector2i` constructions per enemy per frame and allow typed or packed storage, which kills the
+Variant boxing on every `other_pos` read. **Those are now the prime suspects for separation's
+25.5** — the inner-loop arithmetic and Variant unboxing, not the dictionary. If G-1 is revived it
+must be re-justified against those, with its own prediction, and not by citing hashing.
+
+**P-2 is kept rather than reverted.** It is a strict reduction in work that cannot be slower, and
+the code is clearer. But its benefit is **unmeasurable**, and it must not be cited later as a win.
+
+*Correctness verified before measuring:* grid buckets populate identically (Array reference
+semantics preserved through `get()`), `get_enemies_in_radius` returns the same members,
+`get_flow_direction` returns real vectors on-field and `Vector2.ZERO` off it,
+`flow_field.size()`/`walls_dict.size()` unchanged at 154/104, and a live round paths and separates
+normally with zero errors.
+
+### A third source of variance: across sessions
+
+The pre-P-2 triple (mean **56.3**) was taken minutes before the post triple. An earlier V0 triple
+the same day, on effectively identical code, meaned **65.6** — **14% higher**.
+
+So there are three variance layers, not one: within-process degradation (~+45%, fatal, avoided by
+restarting), first-run spread (±8%), and **session-level drift (~14%)**. The practical rule:
+
+> **Only compare measurements taken close together in the same sitting.** A number quoted from an
+> earlier session is context, not a baseline. Re-measure the "before" immediately before every
+> change, however recently it was measured.
+
 ### What the measurement changes about the ladder
 
 **The manager loop is confirmed as *not* the fix — now with a bound.** Everything G-2 can remove
@@ -98,12 +171,17 @@ against a target needing 83%.
 its two cross-object `tile_map.` calls is **3.8 µs/enemy — 6%**. Its other two calls sit inside
 `is_wall`, so P-1's real ceiling is a fraction of the 17.5 below.
 
-**`is_wall()` + the move is 17.5 µs/enemy (27%), and most of it is probably not `is_wall`.** The
-move ends in a `global_position` assignment on an **Area2D**, which forces a PhysicsServer2D
-transform sync per enemy per frame. **That makes S-1 — currently filed as a "parallel track" —
-plausibly the single largest win on the board**, and it is not ranked that way anywhere in this
-document. *Confirm before building:* add a variant that does `is_wall()` but skips the position
-assignment. That one number decides whether S-1 or P-1 leads.
+**S-1 is the largest non-separation win, and this document files it as a "parallel track".**
+Measured, not predicted: the position write alone is **12.2 µs/enemy (19%)**, and S-1 additionally
+removes the Area2D from the broadphase entirely, which is part of V5's 6.5 floor. **S-1's total
+target is therefore up to ~18 µs/enemy (27%)** — second only to separation. It should be promoted
+from side track to a first-class rung.
+
+**P-1 is worth ~14%, and not where the plan thought.** The flow lookup it was scoped around is only
+3.8; the rest of its value is inside `is_wall`'s conversion, ~5.3 including the normalize and call
+overhead that P-1 cannot remove. So P-1's real ceiling is under 9 µs/enemy, and **an implementation
+that only caches the conversion in `get_flow_direction` captures less than half of it** — it must
+cover `is_wall` too, which is the opposite emphasis to how P-1 is currently written.
 
 **P-3 is well-placed and well-quantified:** the grid rebuild is **11.5 µs/enemy (18%)**, the
 second-largest single item.
@@ -112,11 +190,11 @@ second-largest single item.
 
 | Rank | Target | µs/enemy | Rung |
 |---|---|---|---|
-| 1 | separation | 25.5 | G-1, tested by P-2 |
-| 2 | `is_wall` + move (likely mostly the Area2D sync) | 17.5 | **S-1**, partly P-1 |
+| 1 | separation | 25.5 | ~~G-1~~ — **P-2 refuted the hashing premise**; re-target at Variant boxing + `Vector2i` construction before committing to a flatten |
+| 2 | **Area2D presence** — position write 12.2, plus its broadphase share of the 6.5 floor | **up to ~18** | **S-1** (promote from side track) |
 | 3 | grid rebuild | 11.5 | P-3 |
-| 4 | dispatch + transform + group-scan floor | 6.5 | G-2, S-1 |
-| 5 | flow lookup | 3.8 | P-1 |
+| 4 | cell conversion — `is_wall` ~5.3 + flow 3.8 | ~9 | P-1 (must cover `is_wall`, not just the flow lookup) |
+| 5 | remaining dispatch floor | small | G-2 |
 
 **The target is still hard.** Even with separation made *entirely free*, V1 sits at 40.1 — and 1500
 enemies needs **≤ 11.1**. The non-separation path alone still needs a **3.6× reduction**, which

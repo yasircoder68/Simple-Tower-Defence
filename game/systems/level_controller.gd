@@ -179,11 +179,19 @@ func _rebuild_enemy_grid() -> void:
 			continue
 		var pos: Vector2 = z.global_position
 		var key := _grid_key(pos)
-		if not enemy_grid.has(key):
-			enemy_grid[key] = []
-			enemy_grid_nodes[key] = []
-		enemy_grid[key].append(pos)
-		enemy_grid_nodes[key].append(z)
+		# Two hashes per enemy instead of three-to-four. The old form hashed
+		# enemy_grid twice (has, then []) plus enemy_grid_nodes once more.
+		# Arrays are reference types, so appending to these locals mutates the
+		# arrays actually stored in the dictionaries.
+		var bucket = enemy_grid.get(key)
+		var nodes = enemy_grid_nodes.get(key)
+		if bucket == null:
+			bucket = []
+			nodes = []
+			enemy_grid[key] = bucket
+			enemy_grid_nodes[key] = nodes
+		bucket.append(pos)
+		nodes.append(z)
 
 
 func _grid_key(world_pos: Vector2) -> Vector2i:
@@ -197,9 +205,13 @@ func get_enemies_in_radius(world_pos: Vector2, radius: float) -> Array:
 	for dx in range(-span, span + 1):
 		for dy in range(-span, span + 1):
 			var key := base + Vector2i(dx, dy)
-			if not enemy_grid_nodes.has(key):
+			# Same single-probe idiom as _separation(). Not in a per-frame path
+			# today, but Rain of Arrows queries this 12 times per cast and A3's
+			# S-1 routes both towers through it, so it is no longer cold.
+			var nodes = enemy_grid_nodes.get(key)
+			if nodes == null:
 				continue
-			for z in enemy_grid_nodes[key]:
+			for z in nodes:
 				# The grid caches node references at rebuild time, but splash
 				# damage reads it later in the frame — by then other kills may
 				# already have freed some of them. Without this guard, two
@@ -632,9 +644,9 @@ func generate_flow_field() -> void:
 func get_flow_direction(world_pos: Vector2) -> Vector2:
 	var local_pos = tile_map.to_local(world_pos)
 	var cell = tile_map.local_to_map(local_pos)
-	if flow_field.has(cell):
-		return flow_field[cell]
-	return Vector2.ZERO
+	# get() with a default is one hash; has()-then-[] was two. Vector2.ZERO is
+	# already what a miss meant, so the branch disappears with it.
+	return flow_field.get(cell, Vector2.ZERO)
 
 
 func is_wall(world_pos: Vector2) -> bool:
