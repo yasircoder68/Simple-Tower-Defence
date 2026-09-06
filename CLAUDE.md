@@ -4,7 +4,8 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: A1 and A2 complete.** Pathfinding, swarm AI, tower building/removal/moving,
+**Status: A1 and A2 complete. A3 started — M-1, P-2 and S-1 done; the ladder's tripwire has
+fired, see [a3_plan.md](a3_plan.md)'s opening section before continuing it.** Pathfinding, swarm AI, tower building/removal/moving,
 the silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work.
 A1 added **progressive waves** and the **boulder ability** — five escalating waves with a
 breather, and a hold-to-aim ability on a 3s cooldown that is the only live input.
@@ -792,6 +793,12 @@ Three things A1 taught that generalise:
    `_check_round_complete()` that real resolutions trigger. It would have reported five waves
    working with round-end completely untested.
 
+**A3 — big battles.** 🚧 Started, then deliberately paused. M-1 (attribution), P-2 (single-probe
+dicts) and S-1 (retire the enemy physics presence) are all done and committed. **Both P-2 and S-1
+produced no measurable gain, refuting the proposed cause of the two largest costs** — see
+a3_plan.md's *Where A3 actually stands*. The remaining measured cost looks inherent to
+one-Node-per-enemy, which only the de-nodify/MultiMesh rung addresses.
+
 **A2 — enemy variety.** ✅ Done and verified; see [a2_plan.md](a2_plan.md) for the work order and
 step-by-step state. **Shipped: R-0 (contract hardening), R-1 + R-2 (both renames), M-0 (bench
 harness), E-1 (enemy registry), E-2 (life cost), E-3 (wave composition), E-4 (skeleton), E-5
@@ -923,6 +930,16 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 - **`set_anchors_preset()` alone leaves a procedurally created Control at size (0,0)** — children
   anchored to it then centre on an empty rect and land off-screen. Set `anchor_*` **and**
   `offset_*` explicitly. Cost an hour on the ability bar.
+- **Per-wave silver is the sharpest gameplay regression detector this project has.** It
+  reconciles exactly — a wave pays `sum(count x silver_reward)`, so wave 3 is always `+154` and
+  wave 4 `+238` at `difficulty_scale` 1.6 with the current composition. **A single missed kill
+  shows up as a number.** A3's S-1 shipped two damage regressions that passed `script_check` and
+  read correctly; both were caught this way, and one of them (waves 1-3 exact, 4-5 short) pointed
+  straight at the mechanism. A "did the round still win?" check would have passed the first bug.
+- **Round outcomes are stochastic — do not compare single rounds.** Tower fire intervals jitter
+  ±5%, initial delays are random, and target selection is `randi()`. The same build has finished
+  at 12/20 and 16/20 lives. Compare **per-wave totals**, which are exact, and take two rounds
+  before believing a difference in the final result.
 - **Abilities are inert outside `IN_ROUND` — by design, and it will look like a bug.**
   `level_controller._unhandled_input()` returns early unless the round is running, so a number key
   in PRE_ROUND selects nothing and a click aims nothing. Verify ability input *inside* a round, or

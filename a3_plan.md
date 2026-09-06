@@ -21,6 +21,109 @@
 > (see *The harness degrades within a process*). **Read *M-1 results* first;** the older text is
 > kept only because its *reasoning* about scaffolding was correct even where its numbers were not.
 
+## Where A3 actually stands, and what went wrong
+
+Written at the point the tripwire fired, so the next person starts from the real state rather than
+from the plan's optimism.
+
+### Rung status
+
+| Rung | State | Result |
+|---|---|---|
+| M-0 bench harness | shipped (A2) | works, but see *the instrument* below |
+| **M-1** attribution | **done** | full cost breakdown; corrected CLAUDE.md's diagnosis |
+| **P-2** single-probe dicts | **done, kept** | **−3.9%, inside noise. Refutes G-1's premise** |
+| **S-1** retire physics | **done, kept** | **0 gain.** Refutes the 12.2's attribution |
+| P-1 cached cell conversion | not started | target now ~9 µs/enemy, not "the largest" |
+| T-1 TileMapLayer | not started | still needed (Known issue 5), unaffected by any of this |
+| P-3 registry + buckets | not started | target 11.5 µs/enemy |
+| P-4 offsets + probe | not started | small |
+| G-1 flatten grid | **do not build as written** | premise measured and refuted |
+| G-2 manager loop | not started | bounded at ~10%, cannot be the fix |
+| X-\* de-nodify + MultiMesh | not started | **now the only rung aimed at what was actually measured** |
+| A3-ship overlapping waves | not started | |
+
+Current baseline: **~54–57 µs/enemy** at 600 packed. Target for 1500 enemies: **≤ 11.1**.
+
+### Problem 1 — the instrument is far noisier than the effects being measured
+
+Three independent variance layers, all discovered during M-1, none of them in the original plan:
+
+| Layer | Size | Mitigation |
+|---|---|---|
+| Degradation **within a process** | up to **+45%** by the third run | Restart the game between every single run |
+| Spread between **first runs** | **±8%** | Three runs minimum per data point |
+| Drift **across sessions** | **~14%** | Only compare runs from one sitting; re-measure "before" immediately |
+
+Net effect: **nothing below roughly a 15% change can be distinguished from noise.** Most rungs on
+this ladder predict less than that individually. This is the single biggest practical obstacle to
+finishing A3 as designed, and it is not a code problem.
+
+**The within-process degradation is unexplained.** Not thermal (an idle gap does not recover it),
+not leaked nodes (`node_count` is constant), not positional drift (the lattice is frozen). S-1 was
+expected to test the PhysicsServer2D hypothesis and **did not fix it** — the degradation persists
+with `phys_pairs` at 0. Remaining candidates: allocator fragmentation from creating/destroying 600
+nodes per run, or editor-side accumulation in the hosted process. **Worth one focused
+investigation** — a reliable instrument makes every later rung cheaper.
+
+### Problem 2 — the cost model has been wrong twice, the same way both times
+
+| Cost | Measured | Proposed cause | Verdict |
+|---|---|---|---|
+| Separation, 25.5 µs/enemy | solid | dictionary hashing | **refuted by P-2** |
+| `global_position` write, 12.2 µs/enemy | solid | PhysicsServer2D sync (Area2D) | **refuted by S-1** |
+
+**In both cases the measurement was right and the explanation was wrong**, and in both cases the
+explanation was the obvious first guess. What survives both refutations is the same thing:
+**per-node engine overhead** — the transform-set path, Variant boxing on reads out of untyped
+containers, and the inner-loop arithmetic. None of it is removable while each enemy is a Node.
+
+That points at **X-\*** and away from everything cheaper. It is also why the remaining "cheap
+wins" should be treated as suspect rather than merely unproven: each rests on a specific mechanism
+claim, and the last two such claims were both false.
+
+### Problem 3 — the plan's own procedure would have produced an inverted table
+
+Running the ablation ladder V0→V5 back-to-back, as *Sequencing* specifies, confounds the
+within-process degradation with the variant. V5 does the least work and, measured sixth, would
+have come out **slowest**. The natural reading — "the ablation seam is expensive" — would have been
+confidently, unrecoverably wrong. **Every variant must be the first run of its own process.**
+
+### Problem 4 — behaviour regressions here are invisible to review
+
+S-1 introduced two, both of which passed `script_check`, read correctly, and were caught only by a
+full-round acceptance test with per-wave silver reconciliation:
+
+- A single hit radius, forgetting that area-vs-area collision sums **both** shapes. Cost: a round
+  that had comfortably won was lost outright.
+- Losing opportunistic projectile hits, because `area_entered` used to damage whatever a projectile
+  overlapped. Its signature was diagnostic: **waves 1-3 matched the old build exactly while 4-5
+  regressed**, because only dense waves have several archers converging on one enemy.
+
+**Per-wave silver is the instrument that found both.** It reconciles exactly (`count x reward`), so
+a single missed kill shows up as a number. Use it on every gameplay-touching rung; a "the round
+still wins" check would have passed the first bug and shipped it.
+
+### Problem 5 — the game itself is stochastic
+
+Tower fire intervals are jittered +/-5%, initial delays are random, and target selection is
+`randi()`. Round outcomes vary by several lives run to run (12/20 and 16/20 both observed on the
+same pre-S-1 build). **A single round is weak evidence**; compare per-wave totals, which are far
+tighter, and prefer two rounds.
+
+### The honest strategic position
+
+A3's cheap half is largely spent: two rungs done, both bought nothing measurable, and two more
+(G-1, G-2) are now bounded or refuted before being built. The measured costs are real but appear to
+be inherent to the node-per-enemy architecture, which only X-\* changes.
+
+**The alternative worth weighing is A4.** The game currently wins, is error-free, holds ~250
+enemies, and has an unshipped Windows export. A4 (MVP UI, ~6%) is what actually blocks an itch
+release. A3's remaining value is the 1500-enemy target, which now looks like it requires the
+largest and riskiest rung rather than the accumulation of small ones.
+
+---
+
 ## First measurements — M-0, `BENCH_TAG "M-0"`
 
 One machine, editor-hosted playtest, `packed` config (20 px lattice), 600 enemies.
