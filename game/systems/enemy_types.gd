@@ -28,6 +28,16 @@ const DEFAULTS := {
 	## *cheaper* than a goblin, not more expensive. For A2's skeleton, which
 	## slides through the horde rather than jostling with it.
 	"ignore_separation": false,
+	## How big a target this enemy is, in world px, for projectile hit tests.
+	## Carries the geometry that used to live in each scene's CollisionShape2D,
+	## deleted by A3's S-1 when enemies stopped being Area2D. The values are the
+	## half-extents of those boxes, so the hit test is unchanged rather than
+	## re-tuned: goblin's 64x64 box at scale 0.5 was 32x32, hence 16.
+	##
+	## A projectile adds its OWN radius to this - area-vs-area collision summed
+	## both, and forgetting that made every tower miss (S-1's first attempt lost
+	## a round that had comfortably won before).
+	"hit_radius": 16.0,
 	## Scales how hard this enemy is pushed BY others. It still pushes them
 	## normally, because it still contributes its position to the grid — that
 	## asymmetry is what lets a heavy part the crowd, and it costs one float
@@ -56,6 +66,9 @@ const TYPES := {
 		"max_hp": 6,
 		"speed": 280.0,
 		"ignore_separation": true,
+		## Box was 24x35 (scale 0.38 x 0.55); the mean half-extent, since one
+		## radius cannot express a rectangle.
+		"hit_radius": 15.0,
 	},
 
 	## The heavy that must not be allowed through.
@@ -78,6 +91,9 @@ const TYPES := {
 		"silver_reward": 12,
 		"life_cost": 3,
 		"separation_weight": 0.15,
+		## Box was 70x70 (scale 1.1). More than twice a goblin's, which is why a
+		## single shared hit radius could not stand in for all three.
+		"hit_radius": 35.0,
 	},
 }
 

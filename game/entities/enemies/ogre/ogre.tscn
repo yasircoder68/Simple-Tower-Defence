@@ -3,14 +3,9 @@
 [ext_resource type="Script" uid="uid://bdou6wojgmw17" path="res://entities/enemies/enemy.gd" id="1_enemy"]
 [ext_resource type="Texture2D" uid="uid://c5b6alif1chmk" path="res://assets/1_pixel.png" id="2_pixel"]
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_ogre"]
-size = Vector2(64, 64)
-
-[node name="Ogre" type="Area2D"]
+[node name="Ogre" type="Node2D"]
 z_index = 10
 scale = Vector2(1.1, 1.1)
-collision_mask = 0
-monitoring = false
 script = ExtResource("1_enemy")
 enemy_id = "ogre"
 
@@ -19,5 +14,3 @@ modulate = Color(0.35, 0.45, 0.25, 1)
 scale = Vector2(64, 64)
 texture = ExtResource("2_pixel")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-shape = SubResource("RectangleShape2D_ogre")

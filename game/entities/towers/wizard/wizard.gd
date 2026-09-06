@@ -12,8 +12,12 @@ const AOE_RADIUS := 100.0
 
 @onready var collision_shape = $CollisionShape2D
 @onready var timer = $Timer
+## See archer.gd - resolved via the group so the testbed degrades quietly.
+@onready var map: Node = get_tree().get_first_node_in_group("map")
 
 var damage: int = 0
+## Acquisition radius in world px. A number since S-1, not a collision shape.
+var range_px: float = 0.0
 
 func _ready():
 	# See archer.gd — towers persist between rounds, so map1 refreshes this
@@ -34,30 +38,29 @@ func _ready():
 func refresh_stats() -> void:
 	var stats: Dictionary = TowerStats.get_stats(TOWER_TYPE)
 	damage = stats["damage"]
-
-	if collision_shape and collision_shape.shape is CircleShape2D:
-		# duplicate() so each wizard owns its shape — otherwise resizing one
-		# resizes every wizard sharing the scene's sub-resource.
-		collision_shape.shape = collision_shape.shape.duplicate()
-		collision_shape.shape.radius = stats["range"]
+	range_px = stats["range"]
 
 	if timer:
 		timer.wait_time = stats["attack_interval"] * randf_range(0.95, 1.05)
 
+## Grid query rather than the physics broadphase since S-1 - see archer.gd.
 func _on_timer_timeout():
-	var targets = get_overlapping_areas()
-	var enemies = []
-	for t in targets:
-		if t.is_in_group(Enemy.GROUP):
-			enemies.append(t)
+	if map == null or not map.has_method("get_enemies_in_radius"):
+		return
 
-	if enemies.size() > 0:
-		# Pick a random enemy so multiple wizards don't shoot the exact same target
-		var target = enemies[randi() % enemies.size()]
-		var fire_scene = preload("res://entities/projectiles/fire/fire.tscn")
-		var fire = fire_scene.instantiate()
-		fire.target = target
-		fire.damage = damage
-		fire.aoe_radius = AOE_RADIUS
-		get_parent().add_child(fire)
-		fire.global_position = global_position
+	var enemies: Array = map.get_enemies_in_radius(global_position, range_px)
+	if enemies.is_empty():
+		return
+
+	# Pick a random enemy so multiple wizards don't shoot the exact same target
+	var target = enemies[randi() % enemies.size()]
+	if not is_instance_valid(target):
+		return
+
+	var fire_scene = preload("res://entities/projectiles/fire/fire.tscn")
+	var fire = fire_scene.instantiate()
+	fire.target = target
+	fire.damage = damage
+	fire.aoe_radius = AOE_RADIUS
+	get_parent().add_child(fire)
+	fire.global_position = global_position

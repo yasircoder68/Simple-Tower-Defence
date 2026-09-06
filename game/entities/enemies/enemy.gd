@@ -1,5 +1,15 @@
 class_name Enemy
-extends Area2D
+extends Node2D
+
+## NOT an Area2D. A3's S-1 retired the physics presence, and the reason is
+## measured rather than assumed: assigning global_position on an Area2D forces a
+## PhysicsServer2D transform sync, which cost 12.2 us/enemy - 19% of the frame -
+## even with the horde frozen and writing the same value it already held. See
+## a3_plan.md's V0-nw ablation.
+##
+## Nothing in this script ever used an Area2D API; the node type existed only so
+## towers could find enemies with get_overlapping_areas(). They now ask the map's
+## spatial grid instead, which answers the same question without a broadphase.
 
 ## The shared enemy base. Deliberately NOT inside a per-type folder: goblin,
 ## skeleton and ogre are .tscn files that all point at THIS script, so it sits
@@ -95,6 +105,8 @@ var speed: float = 100.0
 var silver_reward: int = 2
 ## Lives this costs on escape. Carried by E-2; every enemy costs 1 until then.
 var life_cost: int = 1
+## Target size for projectile hit tests, in world px. See enemy_types.gd.
+var hit_radius: float = 16.0
 ## Skips push-apart entirely — an early-out, so this is cheaper, not dearer.
 var ignore_separation: bool = false
 ## Scales how hard THIS enemy is pushed by others. It still pushes them
@@ -134,6 +146,7 @@ func _resolve_stats() -> void:
 	speed = stats["speed"]
 	silver_reward = stats["silver_reward"]
 	life_cost = stats["life_cost"]
+	hit_radius = stats["hit_radius"]
 	ignore_separation = stats["ignore_separation"]
 	separation_weight = stats["separation_weight"]
 	hp = max_hp

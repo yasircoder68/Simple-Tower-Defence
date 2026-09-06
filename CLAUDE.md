@@ -260,6 +260,13 @@ set them, or you reintroduce the O(n²) collapse.**
 | 2 | `tower_range` | archer / wizard detectors | — |
 | 3 | `projectiles` | arrow / fire | — |
 
+**Layers 1 and 2 are now unused.** A3's S-1 made enemies plain `Node2D` — they have no physics
+presence at all — and towers find them through `map.get_enemies_in_radius()` instead of
+`get_overlapping_areas()`. Projectiles hit by distance test, not `area_entered`. The layer numbers
+are deliberately NOT renumbered; the tower CollisionShape2D nodes are left in their scenes as
+vestigial. **A new Area2D still needs its layers set** — the O(n^2) warning below stands for
+anything that rejoins the broadphase.
+
 Enemies have **`monitoring = false`** — they detect nothing. Detection is done *to* them by
 towers and projectiles. Separation comes from the grid, not from overlap queries.
 
@@ -592,10 +599,13 @@ drops to 2–4.
 >
 > **The biggest surprise: assigning `global_position` costs 12.2 µs/enemy — 19% of the frame.**
 > Measured by an ablation that keeps `is_wall()` but skips the write. The enemies are *frozen* in
-> that test, so it is writing the same value it already holds — **the cost is the PhysicsServer2D
-> transform sync an Area2D forces, not the arithmetic.** Retiring the physics presence (a3_plan's
-> S-1) also removes the enemy from the broadphase, so its total target is **up to ~18 µs/enemy
-> (27%)** — the largest win after separation, and it was filed as a side track.
+> that test, so it is writing the same value it already holds.
+>
+> **It is NOT the physics sync.** That was the first guess, and S-1 disproved it by retiring the
+> Area2D entirely: the broadphase emptied (`phys_pairs` 180 → 0) and the frame cost did not move.
+> The 12.2 is the engine's transform-set path — dirty flags, notifications, the setter — which a
+> plain Node2D pays identically. **Only writing the transform less often, or owning no node at
+> all, can remove it.**
 >
 > The 24-cap null result is explained: the nine-cell scaffolding is paid **in full by an enemy with
 > zero neighbours**, so no inner-loop cap can reduce it.
@@ -607,7 +617,11 @@ drops to 2–4.
    **−3.9%, inside the noise band**. Hashing is not separation's dominant cost. The remaining
    suspects are the inner-loop arithmetic and the Variant boxing on every position read out of an
    untyped Array. Re-target before spending a commit.
-2. **The Area2D presence** — up to ~18 µs/enemy (12.2 position write + broadphase). Retire it (S-1).
+2. ~~**The Area2D presence**~~ — **tried, and it bought nothing.** S-1 shipped: `phys_pairs` went
+   180 → 0 and node count 1845 → 1250, and `us_per_enemy` did not move (54.1 → 57.2, inside noise).
+   The 12.2 µs/enemy is the engine's **transform-set path**, not the physics sync — a plain Node2D
+   pays it too. **No node-type change removes it; only not owning a node does.** That is A3's X-*
+   (de-nodify + MultiMesh).
 3. **Grid rebuild** — 11.5 µs/enemy. Persistent buckets + an enemy registry (P-3).
 4. **Cell conversion** — ~9 µs/enemy, but **mostly inside `is_wall`, not the flow lookup** (P-1).
    An implementation that only caches `get_flow_direction` captures less than half of it.

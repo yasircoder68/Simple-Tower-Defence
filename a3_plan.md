@@ -1,7 +1,19 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: M-0 built in A2. M-1 and P-2 COMPLETE (2026-09-06). The ladder has been re-ranked by
-measurement, and P-2 REFUTED G-1's premise — see *P-2 result* below before building G-1.**
+**Status: M-0 built in A2. M-1, P-2 and S-1 COMPLETE (2026-09-06).**
+
+> [!CAUTION]
+> **THE TRIPWIRE HAS FIRED. Stop and re-plan before spending another rung.**
+>
+> This plan's own rule: *"Two consecutive rungs missing their prediction by more than 50% means the
+> cost model is wrong — stop and re-measure rather than keep spending against it."*
+>
+> - **P-2** predicted separation time would drop by roughly half. Measured: **−3.9%, inside noise.**
+> - **S-1** predicted up to ~18 µs/enemy. Measured: **0, possibly slightly negative.**
+>
+> Both were aimed at the two largest measured costs, and both remedies were refuted while the costs
+> themselves were confirmed. The *measurements* are sound; the *explanations* were wrong. See
+> *P-2 result* and *S-1 result* before building anything else.
 
 > [!WARNING]
 > **Everything in this section below the M-1 results is superseded.** The 59.3 / 60.6 rows and the
@@ -149,6 +161,59 @@ semantics preserved through `get()`), `get_enemies_in_radius` returns the same m
 `flow_field.size()`/`walls_dict.size()` unchanged at 154/104, and a live round paths and separates
 normally with zero errors.
 
+### S-1 result — the structure changed, the cost did not
+
+S-1 landed in full: `Area2D` → `Node2D` on all three enemy scenes, towers switched from
+`get_overlapping_areas()` to the map's spatial grid, projectiles from `area_entered` to distance
+tests. It verifiably did what it claimed **structurally**:
+
+| | before | after |
+|---|---|---|
+| `phys_pairs` (broadphase) | 180 | **0** |
+| `node_count` at 600 enemies | 1845 | **1250** (−595, exactly one CollisionShape2D per enemy) |
+| **`us_per_enemy`** | 58.2 / 52.6 / 51.4 → **54.1** | 61.2 / 57.6 / 52.9 → **57.2** |
+
+**No improvement.** The physics presence is provably gone and the frame cost did not move.
+
+**This refutes M-1's attribution of the 12.2, not the 12.2 itself.** V0-nw measured that *skipping
+the `global_position` write* saves 12.2 µs/enemy, and that stands. What was wrong was the
+explanation — this document (and CLAUDE.md) claimed the cost was "the PhysicsServer2D transform
+sync an Area2D forces". S-1 removed the physics entirely and the cost stayed. Therefore:
+
+> **Assigning `global_position` costs ~12 µs/enemy on a plain Node2D too.** It is the engine's
+> transform-set path — dirty flags, notification propagation, the property setter — not physics.
+> **No node-type change can remove it. Only writing the transform less often, or not owning a node
+> at all, can.** That is the X-* rung, and nothing before it.
+
+**I recommended promoting S-1 to a first-class rung on the strength of that attribution.** The
+recommendation was wrong, and the experiment is what caught it. Recorded rather than quietly
+amended, because the same reasoning ("it must be physics, enemies are Area2D") is the obvious
+first guess and someone will make it again.
+
+**S-1 is KEPT, and must not be cited as a performance win.** It is kept because it is a
+prerequisite for X-*: enemies that own no physics presence are far easier to convert to plain data.
+It also retires collision layer 2 and 595 nodes. But it bought **nothing measurable at 600**, and
+whether an empty broadphase matters at 1500 is untested.
+
+**Two regressions it caused on the way, both found by the acceptance round rather than by review:**
+
+1. **A single 18px hit radius.** The old test was area-vs-area, which sums BOTH shapes: an arrow
+   (r=20.2) against a goblin (half-extent 16) connected at ~36px, and against an ogre (35) at ~55.
+   Using 18 for everything made towers miss enough to lose a round that had comfortably won.
+   Fixed by moving the geometry into the enemy registry as `hit_radius` and adding the
+   projectile's own radius to it.
+2. **Arrows stopped hitting anything but their original target.** `area_entered` damaged whatever
+   the projectile physically overlapped, so an arrow whose target died mid-flight still connected
+   with the enemy behind it. The replacement returned early and wasted the shot. **Waves 1-3
+   matched the old build exactly while 4-5 regressed** — the signature of a bug that only appears
+   when several archers converge on one enemy. Fixed by scanning the grid for an opportunistic hit
+   on the dead-target branch only.
+
+**Acceptance (the plan's criterion: kills and lives within noise):** two full rounds, both **won**
+at 7/20 and 12/20 lives for +862 and +884 silver, against a pre-S-1 comparable round of 12/20 and
++890. Waves 1-3 reproduce the old silver totals **exactly** (+64 / +96 / +154) and wave 4 is now
+**better** (+238 with zero leaks, twice, versus +236 with one leak). Zero errors.
+
 ### A third source of variance: across sessions
 
 The pre-P-2 triple (mean **56.3**) was taken minutes before the post triple. An earlier V0 triple
@@ -191,7 +256,7 @@ second-largest single item.
 | Rank | Target | µs/enemy | Rung |
 |---|---|---|---|
 | 1 | separation | 25.5 | ~~G-1~~ — **P-2 refuted the hashing premise**; re-target at Variant boxing + `Vector2i` construction before committing to a flatten |
-| 2 | **Area2D presence** — position write 12.2, plus its broadphase share of the 6.5 floor | **up to ~18** | **S-1** (promote from side track) |
+| 2 | ~~Area2D presence~~ — **S-1 shipped and bought nothing.** The 12.2 is the engine's transform-set path, not physics | 12.2, **only X-\* can take it** | X-\* |
 | 3 | grid rebuild | 11.5 | P-3 |
 | 4 | cell conversion — `is_wall` ~5.3 + flow 3.8 | ~9 | P-1 (must cover `is_wall`, not just the flow lookup) |
 | 5 | remaining dispatch floor | small | G-2 |
