@@ -1,6 +1,13 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: M-0 (bench harness) built and verified during A2. M-1 onward not started.**
+**Status: M-0 built in A2. M-1 COMPLETE (2026-09-06) — see *M-1 results* below. P-1 onward not
+started, and the ladder has been re-ranked by measurement.**
+
+> [!WARNING]
+> **Everything in this section below the M-1 results is superseded.** The 59.3 / 60.6 rows and the
+> attribution built on them predate A2 and were measured with a protocol now known to be invalid
+> (see *The harness degrades within a process*). **Read *M-1 results* first;** the older text is
+> kept only because its *reasoning* about scaffolding was correct even where its numbers were not.
 
 ## First measurements — M-0, `BENCH_TAG "M-0"`
 
@@ -11,6 +18,13 @@ One machine, editor-hosted playtest, `packed` config (20 px lattice), 600 enemie
 | M-0 | V1 | 600 | packed | 16.67 | 50.00 | 15.77 | 21.79 | **26.3** | 180 | 1843 |
 | M-0 | V0 | 600 | packed | 133.33 | 144.51 | 35.59 | 52.38 | **59.3** | 180 | 1843 |
 | M-0 · post-E-1 | V0 | 600 | packed | 133.33 | 142.85 | 36.38 | 52.39 | **60.6** | 180 | 1843 |
+| M-0 · post-A2 | V0 | 600 | packed | 133.33 | 144.88 | 40.00 | 52.24 | **66.7** | 180 | 1843 |
+
+**The post-A2 row is the current baseline** (2026-09-06, after E-2..E-5 and A-1). Everything below
+that quotes 59.3 or 60.6 is arithmetic against a build that no longer exists — **M-1 re-derives the
+whole table before any optimisation lands.** Note the frame figures barely moved while `phys_ms`
+rose 10%: exactly the vsync-quantisation trap this plan was written to avoid, visible in its own
+data.
 
 **On the post-E-1 row: +1.3 µs/enemy (+2.2%) against the pre-E-1 baseline, and I cannot honestly
 call that noise, because the noise floor was never established** (M-0 called for three identical
@@ -25,16 +39,107 @@ self-test it had to pass before being believed:
 - `16600 / 59.3` = **280 enemies** at 60 FPS — CLAUDE.md's "practical budget ~200–250". ✅
 - `16600 / 26.3` = **631 enemies** with separation off — CLAUDE.md's "60 FPS at 600". ✅
 
+## M-1 results — measured 2026-09-06, `BENCH_TAG "M-0"`, 600 enemies, `packed`
+
+**Protocol: one run per game process, always the first run.** That is not a stylistic preference —
+see the next section.
+
+| Variant | µs/enemy | phys p50 | Isolates (by subtraction) | Cost | Share |
+|---|---|---|---|---|---|
+| V0 | **65.6** | ~39 | — | — | 100% |
+| V1 | 40.1 | 24.06 | **separation** | **25.5** | **39%** |
+| V2 | 36.3 | 21.80 | flow lookup + its 2 `tile_map.` calls | 3.8 | 6% |
+| V3 | 18.8 | 11.29 | **`is_wall()` + the move** | **17.5** | **27%** |
+| V4 | 18.0 | 10.79 | script entry residual | 0.8 | 1% |
+| V5 | **6.5** | 3.92 | **grid rebuild** | **11.5** | **18%** |
+| — | — | — | dispatch + Area2D transform sync + group scan **floor** | 6.5 | 10% |
+
+The parts sum to **65.6**, exactly V0. V0 is the mean of three first-runs (62.6 / 66.7 / 67.5).
+
+### The harness degrades within a process — and it would have inverted the whole table
+
+Three identical V0 runs back-to-back gave **67.5 → 98.3 → 94.3**. A second process gave
+**62.6 → 78.3 → 85.9**. Monotonic degradation, ~+45% by the third run, and **an idle gap did not
+recover it**, which rules out thermal. Node count is constant at 1845 and the lattice is frozen, so
+it is neither leaked nodes nor positional drift.
+
+**First runs, across three separate processes: 62.6 / 66.7 / 67.5 — a ±4% spread.** That is the
+real noise floor, and it is perfectly usable. Any run that is not the first in its process is not.
+
+**This is the finding that saves the stage.** Had the ladder been run V0→V5 back-to-back as this
+plan specified, the degradation would have been **perfectly confounded with the variant**: V5 does
+the least work, and being sixth it would have measured *slowest*. The resulting table would have
+said "removing work makes it slower", and the natural reading — "the ablation seam itself is
+expensive" — would have been completely wrong. A methodology that produces a confidently inverted
+answer is worse than no measurement at all, which is the exact hazard this plan was written to
+avoid, reproduced by the plan's own procedure.
+
+**Root cause is not yet identified.** Not thermal, not node leakage, not drift. Remaining
+candidates: allocator fragmentation from creating and destroying 600 nodes per run, PhysicsServer2D
+broadphase state not compacting across teardowns, or editor-side accumulation in the hosted
+process. **S-1 tests the physics hypothesis for free** — if retiring the Area2D presence also
+removes the degradation, that is the answer.
+
+**Two harness defects worth fixing before the matrix grows:**
+
+1. `_phys_samples` contains long runs of identical values, because
+   `Performance.TIME_PHYSICS_PROCESS` updates less often than once per frame. The effective sample
+   count is well below the 180 reported, so `p95` is softer than it looks.
+2. `node_count` drifted 1845 → 1860 mid-session, so the harness is not perfectly isolated from
+   whatever else the scene is doing.
+
+### What the measurement changes about the ladder
+
+**The manager loop is confirmed as *not* the fix — now with a bound.** Everything G-2 can remove
+lives inside V5's 6.5 µs/enemy floor, and it cannot remove all of it. **G-2 is worth at most ~10%**,
+against a target needing 83%.
+
+**P-1 is over-ranked.** It was predicted "likely the largest". The entire flow lookup *including*
+its two cross-object `tile_map.` calls is **3.8 µs/enemy — 6%**. Its other two calls sit inside
+`is_wall`, so P-1's real ceiling is a fraction of the 17.5 below.
+
+**`is_wall()` + the move is 17.5 µs/enemy (27%), and most of it is probably not `is_wall`.** The
+move ends in a `global_position` assignment on an **Area2D**, which forces a PhysicsServer2D
+transform sync per enemy per frame. **That makes S-1 — currently filed as a "parallel track" —
+plausibly the single largest win on the board**, and it is not ranked that way anywhere in this
+document. *Confirm before building:* add a variant that does `is_wall()` but skips the position
+assignment. That one number decides whether S-1 or P-1 leads.
+
+**P-3 is well-placed and well-quantified:** the grid rebuild is **11.5 µs/enemy (18%)**, the
+second-largest single item.
+
+**Re-ranked by measured cost, not prediction:**
+
+| Rank | Target | µs/enemy | Rung |
+|---|---|---|---|
+| 1 | separation | 25.5 | G-1, tested by P-2 |
+| 2 | `is_wall` + move (likely mostly the Area2D sync) | 17.5 | **S-1**, partly P-1 |
+| 3 | grid rebuild | 11.5 | P-3 |
+| 4 | dispatch + transform + group-scan floor | 6.5 | G-2, S-1 |
+| 5 | flow lookup | 3.8 | P-1 |
+
+**The target is still hard.** Even with separation made *entirely free*, V1 sits at 40.1 — and 1500
+enemies needs **≤ 11.1**. The non-separation path alone still needs a **3.6× reduction**, which
+confirms this plan's central finding rather than softening it.
+
+---
+
 ### What the first attribution says
 
 **Separation costs 33.0 µs/enemy** (59.3 − 26.3) — 56% of physics time. That much was expected.
+
+**Caveat, and it matters:** that subtraction pairs a **V1 row measured pre-E-1** against a V0 row
+from the same era. Both halves are now stale, and V1 has never been re-measured at all. The 33.0
+figure is indicative, not established — M-1 re-runs both variants on the current build before
+anything is attributed to separation.
 
 **The other 26.3 µs/enemy was not.** At 600 enemies that is 15.77 ms of a 16.67 ms physics
 budget — **95% of the frame, before separation runs at all.** Even if separation were made
 completely free, 600 enemies would sit exactly at the edge.
 
-**This changes the shape of the target.** 1500 enemies needs `us_per_enemy ≤ 11.1`, a **5.3×**
-reduction from 59.3. Driving separation to literally zero only reaches 26.3 — less than halfway.
+**This changes the shape of the target.** 1500 enemies needs `us_per_enemy ≤ 11.1` — a **5.3×**
+reduction from 59.3, or **6.0×** from the current post-A2 baseline of 66.7. Driving separation to
+literally zero only reaches 26.3 — less than halfway.
 **A3 must attack the non-separation baseline too**, and the items that do that are P-1 (cached cell
 conversion), P-3 (registry + persistent buckets) and G-2 (the manager loop). The plan below already
 contains them; what changed is that they are now known to be *load-bearing* rather than
@@ -52,14 +157,16 @@ supporting.
 
 ---
 
-Blocked on A2 (see [a2_plan.md](a2_plan.md)) for everything after M-0.
+~~Blocked on A2~~ — **A2 is complete** (see [a2_plan.md](a2_plan.md)), so every rung after M-0 is
+now unblocked.
 
 **Target: 1500 concurrent enemies at p95 < 16.6 ms**, ~6× today's ceiling. De-nodify and MultiMesh
 are in scope from the start (decided with the user). The ladder below is about **attribution
 order**, not scope.
 
-**Scope:** `level_controller.gd`, `enemy.gd`, a new `systems/bench.gd`, the two towers, the two
-projectiles, `goblin.tscn`, `level_01.tscn`, `my_tiles.tscn`. Bundles the deprecated-TileMap →
+**Scope:** `level_controller.gd`, `enemy.gd`, `systems/bench.gd` (built in A2), the two towers, the
+two projectiles, **all three enemy scenes** (`goblin.tscn`, `skeleton.tscn`, `ogre.tscn` — S-1
+changes the root type of each), `level_01.tscn`, `my_tiles.tscn`. Bundles the deprecated-TileMap →
 TileMapLayer migration (CLAUDE.md Known issue 5) and, as its final step, overlapping waves
 (deferred here by [a1_plan.md](a1_plan.md)).
 
@@ -144,9 +251,13 @@ in `level_controller`. Three reasons:
 - A2's own checks want it — E-1's "a round is numerically identical", E-4's and E-5's "FPS holds
   at peak" are currently screenshot-reads.
 - It gets validated on real work before A3 depends on it.
-- **The per-enemy numbers above are pre-E-1 and will be stale.** A2 adds `enemy_types.gd`, three
-  enemy types, four ability payloads, `ignore_separation`, `separation_weight` and `life_cost`.
-  The harness re-baselines for free once E-1 lands.
+- **The per-enemy numbers above are pre-E-1 and will be stale.** A2 added `enemy_types.gd`, three
+  enemy types, **two** ability payloads (boulder plus A-1's Rain of Arrows — Divine Smite and
+  Dragon Fire moved to A5), `ignore_separation`, `separation_weight` and `life_cost`.
+  The harness re-baselines for free.
+
+**This section is history now** — M-0 shipped in A2 as planned, and the prediction it makes above
+was correct: the numbers did go stale, twice.
 
 ---
 
@@ -356,6 +467,11 @@ Do not run a deprecation migration and a hot-path rewrite over the same lines in
 
 ## G-1 · Flatten the grid
 
+> **Note added after A2:** `get_enemies_in_radius()` has more callers than when this plan was
+> written — A-1's Rain of Arrows queries it once per tick (12 per cast), and S-1 converts both
+> towers onto it. Flattening the grid changes that function's internals, so re-verify **every**
+> consumer, not just separation: boulder, fire, rain, and post-S-1 the two towers.
+
 Replace `Dictionary[Vector2i] → Array[Vector2]` (and its duplicate `enemy_grid_nodes`) with a
 **counting sort into flat packed arrays**.
 
@@ -450,8 +566,10 @@ G-2 engine.
 - **Handles become `(slot, generation)`.** Get the generation counter wrong and a stale arrow damages
   a **fresh** enemy occupying a recycled slot — no crash, no error, in a project whose entire A2 R-0
   was about eliminating exactly that class of bug.
-- **Eight consumers, not three** — archer, wizard, arrow, fire, boulder, plus A2's `rain_of_arrows`
-  (which ticks repeatedly), `divine_smite` (picks highest-HP from a query) and `dragon_fire`.
+- **Six consumers today, eight if A5 lands first** — archer, wizard, arrow, fire, boulder, plus
+  A2's `rain_of_arrows`, which ticks its query **12 times per cast** rather than once. `divine_smite`
+  (picks highest-HP from a query) and `dragon_fire` moved to A5, so whether they are X's problem
+  depends on stage order. **If A5 ships before A3, budget for eight.**
 - **A2's contract net must be re-formed for the index model, not deleted.** `Enemy.GROUP`,
   `ROUND_CONTRACT` and `_assert_enemy_contract()` were all built around nodes and groups. Budget for
   this explicitly — it is the thing most likely to be quietly skipped.

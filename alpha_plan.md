@@ -41,15 +41,19 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 | Stage | Headline | Share | State |
 |---|---|---|---|
 | **A1** | "it's a game now" — waves + the boulder | 6% | ✅ built, exported, **not shipped** |
-| **A2** | enemy variety + the three remaining abilities | 8% | 🚧 renames done, enemy/ability tracks pending |
+| **A2** | enemy variety + Rain of Arrows | ~5.5% | ✅ **built, verified, complete** |
 | **A3** | big battles — the horde engine | 12% | planned ([a3_plan.md](a3_plan.md)) |
 | **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | sketch below; **unblocks shipping** |
-| **A5** | more ways to build — towers, gold sinks, slots | ~5% | sketch |
+| **A5** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
 | **A6** | a campaign shape — level select, more levels | ~4% | sketch |
 | — | running throughout: first art batch | ~2% | |
 
 Adding A4 as its own stage pushed alpha's share of remaining work from 40% to roughly 43%. The
 shares are estimates and A5 absorbed a reduction, since some of its interface cost moved into A4.
+
+**Moving A-2 Divine Smite and A-3 Dragon Fire from A2 to A5** (2026-09-06) shifted roughly 2.5%
+between those two stages; the alpha total is unchanged. Both are cheaper than originally scoped
+because A2's A-1 already built the machinery they needed — see A5 below.
 
 ---
 
@@ -97,7 +101,7 @@ upload itself.
 > Smite's "huge single-target damage" is meaningless while every enemy has 10 HP, and A2 is
 > exactly where the enemies worth smiting arrive.
 
-### A2 — enemy variety · 8%
+### A2 — enemy variety · ~5.5% ✅ COMPLETE
 
 **Full work order: [a2_plan.md](a2_plan.md).**
 
@@ -109,11 +113,27 @@ upload itself.
   rename (zombie → goblin).
 - A shared foundation for enemies so adding the next one is cheap: `class_name Enemy` plus a
   stat registry, so a new type is a `.tscn` and a dict entry.
-- **The three remaining abilities** — Rain of Arrows, Divine Smite, Dragon Fire — moved here
-  from A1. They land alongside the enemies that give them a job.
+- **Rain of Arrows** — the first of the three abilities deferred from A1, and the one that proved
+  the ability registry generalises. It also introduced **directional (rotatable) aiming** and the
+  optional `SHAPE` mechanism on the aim marker, neither of which was in A2's original scope.
+- **Divine Smite and Dragon Fire moved to A5** (2026-09-06). They were never blocking A2's
+  headline — enemy variety — and A-1 had already built the machinery both of them needed.
 
 A2 also closes two debts A1 left open: the Ogre's 80 HP makes the archer's damage upgrade track
-meaningful (Known issue 1), and gives Divine Smite a target worth a 60s cooldown.
+meaningful (**Known issue 1, verified dead** — 8 archer hits, dropping to 7 after one damage
+upgrade), and gives Divine Smite a target worth a 60s cooldown even though Smite itself now ships
+in A5.
+
+**A fresh save loses level_01 at wave 4** — measured, and deliberately left alone (2026-09-06).
+Four base archers fire 8 shots/sec against wave 4's ~16.7 enemies/sec; upgrades close the gap.
+The lost round still banks its silver, which buys the win on the replay, so the intended grind
+loop works. It does mean **a new player's first game is a loss with no explanation** — an
+onboarding problem for A4, not a reason to cut enemy counts.
+
+**Two defects surfaced while verifying the ogre**, both in `_build_waves()`, both fixed: scaled
+wave totals drifted +1 once a third enemy group existed, and `SKELETON_PACK` was **inert** — the
+`pack` key was dropped, so skeletons had never once arrived as a squad in any round played or
+measured. E-4's acceptance check only read wave totals, which that bug does not affect.
 
 ### A3 — big battles · 12%
 
@@ -198,16 +218,30 @@ Plus the two that fall out of doing those properly:
 *Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency. That was removed by decision —
 silver and gold only. Fix when A4 is planned.*
 
-### A5 — more ways to build · ~5% *(was A4)*
+### A5 — more ways to build and fight · ~7.5% *(was A4)*
 
+- **The last two abilities, moved here from A2** (2026-09-06):
+  - **Divine Smite** (60s, single target) — now the *easy* case. Point-aimed and circular, so it
+    takes the "one registry entry plus one payload folder" path A2's A-1 demonstrated, with no
+    change to `ability_manager` or `aim_marker` at all. Its design problem — needing a target worth
+    a 60s cooldown — was already solved by A2's Ogre.
+  - **Dragon Fire** (90s, strafing run) — was scoped as "the one place the system strains", and
+    A-1 removed most of that strain. The `aim_marker` `SHAPE` mechanism it needed **already
+    exists** (Dragon Fire adds a `"strip"` branch rather than creating the mechanism), and
+    directional drag-aiming exists too, so the planned fixed left→right axis compromise can be
+    dropped. Decide that here rather than inheriting either answer.
+  - Both are multi-tick payloads, so both obey A-1's rule: check the round at the top of every
+    tick, and `is_instance_valid()` **every** tick. And neither may read `global_position` or
+    `global_rotation` in `_ready()` — `cast()` assigns both after `add_child()`.
 - Additional tower types beyond the starting two, so loadout becomes a real decision.
 - **Gold finally does something.** Today gold is earned once per level and can be spent on
   nothing at all — half the economy is inert. Gold buys tower unlocks and extra placement slots.
 - More placement slots, so the four-tower cap becomes a choice rather than a wall.
 
 **This is smaller than it looks.** `PlayerData` already has `spend_gold()`, `unlocked_towers`,
-`is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A4 is wiring a UI
-to a working economy, not building one.
+`is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A5 is wiring a UI
+to a working economy, not building one. The same is true of the two abilities: the registry, the
+cooldown dict, the bar and both aim modes are all built and verified.
 
 **Two traps.** Any new tower must join the `tower_unit` group **and** expose `refresh_stats()`, or
 it silently ignores every upgrade the player buys. And more placement slots is a large power

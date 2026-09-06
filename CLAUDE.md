@@ -4,7 +4,7 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: A1 complete; A2 through E-5 and A-1.** Pathfinding, swarm AI, tower building/removal/moving,
+**Status: A1 and A2 complete.** Pathfinding, swarm AI, tower building/removal/moving,
 the silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work.
 A1 added **progressive waves** and the **boulder ability** — five escalating waves with a
 breather, and a hold-to-aim ability on a 3s cooldown that is the only live input.
@@ -15,8 +15,11 @@ and **three enemy types — goblin, skeleton, ogre**. Plus a self-measuring benc
 forward from A3, and **A-1 Rain of Arrows** — the second ability, and the one that introduced
 directional (rotatable) aiming.
 
-Not yet built: two of the three remaining abilities (A2's A-2 Divine Smite and A-3 Dragon Fire),
-the horde engine rewrite, MVP UI, gold sinks, multiple maps, any real art. See Build order, and [a2_plan.md](a2_plan.md) for
+**A-2 Divine Smite and A-3 Dragon Fire moved from A2 to A5** (2026-09-06) — they were never
+blocking A2's headline of enemy variety, and A-1 already built the machinery both need.
+
+Not yet built: the horde engine rewrite, MVP UI, the last two abilities, gold sinks, multiple maps,
+any real art. See Build order, and [a2_plan.md](a2_plan.md) for
 step-by-step state.
 
 **The game has not shipped to itch yet** — a Windows export exists, but there is no main menu,
@@ -42,7 +45,7 @@ theme. It is still in git history if ever needed. Every sprite in the running ga
 were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
 
 **In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
-rename, and the three remaining abilities. R-0/R-1/R-2 shipped; see that file for progress.
+rename, and Rain of Arrows. The other two abilities moved to A5; see that file for progress.
 
 **Planned next: [a3_plan.md](a3_plan.md)** — the horde engine, targeting 1500 concurrent enemies,
 bundling the TileMapLayer migration and ending with overlapping waves. **Read its opening section
@@ -537,6 +540,21 @@ Measured on this machine, `level_01`, enemies spawned instantly:
 **The practical budget is ~200–250 enemies.** Beyond that the framerate falls off a cliff, and
 the falloff is super-linear in *density*, not in count.
 
+**The FPS table above is legacy — prefer the bench figure.** Current measured baseline, taken with
+`systems/bench.gd` after A2 closed (post-E-5, post-A-1), 600 enemies at the `packed` lattice:
+
+| Metric | Value |
+|---|---|
+| `us_per_enemy` | **66.7** |
+| `phys_ms` p50 / p95 | 40.00 / 52.24 |
+| Ceiling at 60 Hz (`16600 / us_per_enemy`) | **~249 enemies** |
+
+The trend across A2 is worth knowing: **59.3 (pre-E-1) → 60.6 (post-E-1) → 66.7 (post-A2)**. Note
+`frame_ms` p50 sat at 133.33 for all three while `phys_ms` rose 10% — the vsync-quantisation trap,
+visible in this project's own data. **None of that drift is attributable yet, because the noise
+floor has still never been established** (three identical runs were called for; three have been
+taken, but across three different builds). Establishing it is the first task of a3_plan's M-1.
+
 The cost is isolated to `enemy.gd::_separation()`. Confirmed by probe: at 600 enemies, with
 separation disabled the game runs at **60 FPS** (rendering 600 sprites is free); enabling it
 drops to 2–4.
@@ -553,25 +571,55 @@ drops to 2–4.
 - Flow-field lookup / TileMap `local_to_map` calls (60 FPS with these alone)
 - Rendering and the physics broadphase (60 FPS with `_physics_process` disabled)
 
-> [!WARNING]
-> **The "recommended next attempt" below is disputed and probably wrong. Read
-> [a3_plan.md](a3_plan.md) before acting on it.** A per-enemy accounting done during A3 planning
-> found the cost is dominated by **16–25 `Vector2i`-keyed Dictionary operations and ~11 `Vector2i`
-> constructions per enemy per frame** — roughly 10,800 probes/frame at 600 enemies. A manager loop
-> removes **one** Callable dispatch out of that and touches none of the hashing. It is a genuine
-> win and a prerequisite for later work, but it is not the fix, and following it as written would
-> most likely produce a sixth consecutive "no change".
+> [!IMPORTANT]
+> **MEASURED at a3_plan's M-1 (2026-09-06). The old "recommended next attempt" — move the horde
+> into a single manager loop — was WRONG, and the numbers now bound how wrong.**
 >
-> The same accounting explains the 24-cap null result below: the nine-cell scaffolding is paid **in
-> full by an enemy with zero neighbours**, so no inner-loop cap can reduce it. This paragraph gets
-> rewritten with measured numbers at a3_plan's M-1.
+> Full ablation at 600 enemies, `packed`, one run per process (see the protocol note below):
+>
+> | Cost | µs/enemy | Share |
+> |---|---|---|
+> | Separation | **25.5** | 39% |
+> | `is_wall()` + the move | **17.5** | 27% |
+> | Spatial-grid rebuild | **11.5** | 18% |
+> | Dispatch + Area2D transform sync + group scan | 6.5 | 10% |
+> | Flow-field lookup (incl. its 2 `tile_map.` calls) | 3.8 | 6% |
+> | **Total (V0)** | **65.6** | 100% |
+>
+> **A manager loop can only touch the 6.5 floor, and not all of it — at most ~10%,** against a
+> target that needs 83%. It remains a prerequisite for later work; it is not the fix.
+>
+> **The biggest surprise is `is_wall()` + the move at 27%.** The move ends in a `global_position`
+> assignment on an **Area2D**, forcing a PhysicsServer2D transform sync per enemy per frame — so
+> **retiring the physics presence (a3_plan's S-1) is plausibly the largest single win available**,
+> and it was filed as a side track. Confirm with a variant that keeps `is_wall()` but skips the
+> assignment before building it.
+>
+> The 24-cap null result is explained: the nine-cell scaffolding is paid **in full by an enemy with
+> zero neighbours**, so no inner-loop cap can reduce it.
 
-**Recommended next attempt (disputed — see above):** stop giving every enemy its own
-`_physics_process`. Move the
-whole horde into a single manager loop on `level_controller` that updates all enemies in one tight pass.
-That removes 600 per-node script invocations and 600 sets of cross-object `map.` dispatches
-per frame, which is the largest remaining structural cost. If that isn't enough, the horde
-needs to leave GDScript entirely (MultiMesh + a compute-style update, or GDExtension).
+**Next attempts, ranked by measurement rather than intuition** (a3_plan's ladder):
+
+1. **Separation** — 25.5 µs/enemy. Flatten the grid (G-1); test the premise first with the
+   four-line single-probe change (P-2).
+2. **The move's physics sync** — up to 17.5 µs/enemy. Retire the Area2D presence (S-1).
+3. **Grid rebuild** — 11.5 µs/enemy. Persistent buckets + an enemy registry (P-3).
+
+Even with separation made *entirely free* the loop still costs 40.1 µs/enemy, against the ≤11.1
+that 1500 enemies would need — so the non-separation path needs a 3.6× reduction on its own. If
+the ladder does not get there, the horde leaves GDScript (MultiMesh + a compute-style update, or
+GDExtension).
+
+> [!WARNING]
+> **The bench degrades within a process: only the FIRST run after a game start is trustworthy.**
+> Three identical back-to-back runs measured 67.5 → 98.3 → 94.3 µs/enemy, and an idle gap did not
+> recover it (so it is not thermal; node count is constant and the lattice is frozen, so it is
+> neither leakage nor drift). First runs across separate processes cluster at 62.6 / 66.7 / 67.5 —
+> **a ±4% noise floor, which is perfectly usable.**
+>
+> **Restart the game between every measurement.** Running an ablation ladder back-to-back would
+> confound the degradation with the variant and produce a confidently *inverted* table — the
+> least-work variant, measured last, would look slowest.
 
 **Do not claim the perf problem is fixed without a measured 600-enemy screenshot** — and, from A3
 onward, a `us_per_enemy` figure from the bench harness. FPS alone is vsync-quantised: anything from
@@ -623,6 +671,14 @@ Still open, roughly by value:
    `is_instance_valid()` in both `get_enemies_in_radius()` and `fire.gd`'s damage loop. Any new
    consumer of `enemy_grid_nodes` needs the same guard — the positions array (`enemy_grid`)
    is safe, only the node-reference one is hazardous.
+1c. **`lives_depleted` is emitted and connected to nothing.** `base_health.gd` declares and emits
+   it; nothing listens. The loss is actually driven by an inline `if base_health.lives <= 0` check
+   inside `level_controller.on_enemy_escaped()`. **Not a live bug** — `on_enemy_escaped()` is the
+   only caller of `lose_life()` and it checks immediately after — but it is the same shape as M1's
+   `save_data()` trap: a mechanism that looks like the one in charge, wired to nothing. Add a
+   second way to lose lives (a boss attack, a timer, a self-damage effect) and it will silently
+   fail to end the round. Found in A2 step 11 by calling `lose_life(20)` directly and watching the
+   round carry on. **Either connect it or delete it.**
 2. Flow field charges `cost + 1` for diagonals → Chebyshev distances, so diagonal routes are
    under-priced and paths skew.
 3. `is_wall()` tests only the enemy's centre point, so bodies clip wall corners.
@@ -708,11 +764,27 @@ Three things A1 taught that generalise:
    `_check_round_complete()` that real resolutions trigger. It would have reported five waves
    working with round-end completely untested.
 
-**A2 — enemy variety.** 🚧 In progress; see [a2_plan.md](a2_plan.md) for the work order and
+**A2 — enemy variety.** ✅ Done and verified; see [a2_plan.md](a2_plan.md) for the work order and
 step-by-step state. **Shipped: R-0 (contract hardening), R-1 + R-2 (both renames), M-0 (bench
 harness), E-1 (enemy registry), E-2 (life cost), E-3 (wave composition), E-4 (skeleton), E-5
-(ogre), A-1 (Rain of Arrows).** Remaining: A-2 Divine Smite, A-3 Dragon Fire, and the tuning/docs
-pass.
+(ogre), A-1 (Rain of Arrows), and the step-11 tune/verify pass.** **A-2 Divine Smite and A-3
+Dragon Fire moved to A5.** A2 is closed.
+
+**Step 11 verified two things worth carrying forward.** Both proof cases passed: losing mid-wave
+with ogres and skeletons in flight leaves no stale `_spawn_plan` and no ghost spawns on restart;
+and a barrage, a boulder mid-arc and wizard fireballs all overlapping a force-cleared board
+produced zero errors.
+
+**A fresh save now LOSES level_01 at wave 4, and that is deliberate — do not "fix" it by cutting
+enemy counts** (explicit decision, 2026-09-06). Four base archers fire 8 shots/sec; wave 4 delivers
+~16.7 enemies/sec. Upgrades are what close that gap, which is exactly what the economy section
+means by tuning each level against an assumed upgrade level. The loop closes correctly — the lost
+round still banks its silver (422 measured), and that silver buys the win. **A1's "a fresh save
+lost four lives" figure is dead** and must not be quoted: it predates skeletons, ogres, and the
+`SKELETON_PACK` fix.
+
+What this *does* expose belongs to **A4**: a new player's first game is a loss, and the result
+screen says only "Round Lost" — it never explains that their silver was kept.
 
 **Two defects found while verifying E-5, both in `_build_waves()`, both fixed** — and both worth
 the class of mistake rather than the fix:
@@ -765,7 +837,7 @@ Three bugs found in the M1 audit are worth remembering for the class of mistake,
    changes the state rather than trusting a lifecycle signal to cover every entry point.
 
 The enemy rename (`zombie` → `goblin` under the medieval theme) is approved and scheduled for
-**A2**, alongside the new enemy types and the three remaining abilities.
+**A2**, alongside the new enemy types and Rain of Arrows.
 
 `implementation_plan.md` is now a **design reference**, not a roadmap — its phase numbering is
 superseded by the three stages above, but its tower and enemy design tables are still the source
@@ -797,7 +869,9 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   error — a stale filesystem cache.
 - **The bench harness measures the game for you: `/root/map1/Bench`.** `call("run", 600, "packed")`
   then read `result_line` via `runtime_get_script_vars`. Headline stat is **`us_per_enemy`**;
-  `16600 / us_per_enemy` is the enemy ceiling at 60Hz. `frame_ms` is vsync-quantised and
+  `16600 / us_per_enemy` is the enemy ceiling at 60Hz. **Only the FIRST run after a game start is
+  trustworthy — restart between every measurement** (M-1 measured +45% degradation by the third
+  back-to-back run, not recovered by idling). `frame_ms` is vsync-quantised and
   secondary — `phys_ms` and `us_per_enemy` come from `Performance.TIME_PHYSICS_PROCESS` and are
   not. Configs: `loose` (45px, fits only ~195 on level_01) and `packed` (20px, fits ~955).
   `Enemy.bench_variant` drives the V0–V5 ablation ladder; **`reset()` it or the horde stays

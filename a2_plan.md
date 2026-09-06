@@ -1,7 +1,17 @@
 # A2 — "Enemy Variety" — Implementation Work Order
 
-**Status: in progress — the whole enemy track is built and verified. Only the three abilities
-and the tune/docs pass remain.**
+**Status: A2 COMPLETE.** Enemy track, A-1 Rain of Arrows, and the tune/verify pass all built and
+verified. A-2 and A-3 moved to A5.
+
+> [!IMPORTANT]
+> **A-2 Divine Smite and A-3 Dragon Fire moved out of A2 to A5** (decision, 2026-09-06). A2 keeps
+> **A-1 Rain of Arrows**, which is what proved the ability registry generalises. The two remaining
+> abilities are no longer a gate on calling A2 done.
+>
+> This is a better fit than it first looks. A-1 already built the machinery the other two needed —
+> the `aim_marker` `SHAPE` mechanism that this plan called "the one real system change" for A-3,
+> and the drag-to-aim direction A-3 had planned to skip with a fixed axis. Both land in A5 cheaper
+> than they would have been here.
 
 > [!NOTE]
 > **E-5 (ogre) is verified.** Ran 2026-09-05 against the reopened editor. All six checklist steps
@@ -91,8 +101,8 @@ Progress against the Sequencing table below:
 | 6 · E-4 skeleton | ✅ **done and verified** — but its `pack` was inert until E-5's verification pass; see above |
 | 7 · E-5 ogre | ✅ **done and verified** — Known issue 1 closed; see above |
 | 8 · A-1 Rain of Arrows | ✅ **done and verified** — see below |
-| 9–10 · ability track (A-2, A-3) | not started |
-| 11 · tune + docs | not started |
+| 9–10 · A-2 Divine Smite, A-3 Dragon Fire | **moved to A5** |
+| 11 · tune + verify + docs | **done** — see *Step 11* below |
 
 ### A-1 shipped — and what it cost the registry claim
 
@@ -235,6 +245,99 @@ not evidence.**
 where boulder is 30. A falling rock belongs on top of the horde; a ground-effect area belongs
 under it, or it hides the enemies the player is trying to read. Confirmed visually.
 
+## Step 11 — tune + verify: what the numbers actually said
+
+Both proof cases pass, and the fresh-save measurement produced a real finding that is **not**
+being "fixed", by decision.
+
+### Proof case 1 — stale round-scoped state · PASS
+
+Lost during **wave 4 with ogres and skeletons in flight**, then Play Again -> Start, both driven
+through the real Buttons (`click_node`) rather than by calling the functions.
+
+| After Play Again | Value |
+|---|---|
+| `round_state` | `PRE_ROUND` |
+| `lives` | 20/20 |
+| `enemies_to_resolve`, `wave_remaining`, `current_wave` | 0 |
+| **`_spawn_plan.size()`** | **0** — E-3's new round-scoped state, cleared |
+| `_waves.size()`, `_spawned_this_wave` | 0 |
+| `towers_by_cell` | **4** — layout correctly survives, by design |
+
+Restarting then built a **fresh 32-entry plan for wave 1**, not a resumed wave 4. No ghost spawns.
+Both timers were already stopped by `abort()` at the moment of the loss.
+
+### Proof case 2 — payloads outliving the round · PASS
+
+A rain barrage ticking, a boulder mid-arc, and wizard fireballs in flight over **25 enemies**, with
+`_end_round(false)` called in the **same frame** — so the board is force-cleared underneath all of
+them. The boulder's 0.5s arc guarantees it impacts *after* every enemy node is freed.
+
+Result: both payloads freed themselves, board cleared, and **zero errors** — no `previously freed`,
+no invalid access. A-1's round check and the per-tick `is_instance_valid()` both held, as did
+`boulder.gd`'s and `fire.gd`'s existing guards.
+
+**The first attempt at this case was worthless and worth recording as such.** Draining lives with
+`base_health.lose_life(20)` did not end the round at all (see below), and by the time the call
+landed the towers had already cleared the board — so it staged neither the overlap nor the loss.
+A test that sets up nothing passes for free.
+
+### `lives_depleted` is emitted and never connected
+
+`base_health.gd` declares and emits `lives_depleted`, and **nothing listens to it.** The loss is
+actually driven by an inline `if base_health.lives <= 0` check inside
+`level_controller.on_enemy_escaped()`.
+
+**Not a live bug** — `on_enemy_escaped()` is the only caller of `lose_life()`, and it checks
+immediately after. But it is a trap of exactly the shape M1's `save_data()` bug had: a mechanism
+that looks like the one in charge, wired to nothing. Anyone adding a second way to lose lives — a
+boss attack, a timer, a self-damage effect — would reasonably expect the signal to end the round,
+and it would not. **Either connect it or delete it**; left alone for now because changing it is a
+behaviour change outside A2's remit.
+
+### The fresh-save measurement — a loss at wave 4, and that stays
+
+First A2 round ever played on a **genuinely fresh save** (0 silver, every upgrade at 0, verified
+from `PlayerData` at load). Four archers on the choke — the strongest fresh-player placement — with
+boulder and rain used throughout.
+
+| Wave | Lives after | Note |
+|---|---|---|
+| 1 (32) | 20/20 | zero leaks |
+| 2 (48) | 20/20 | zero leaks |
+| 3 (72) | **12/20** | ogre killed; 8 regulars leaked (silver confirms: 138 of a possible 154) |
+| 4 (104) | **0 — round lost** | |
+
+**Why**, and it is arithmetic rather than mystery: four base archers fire `4 / 0.5 = 8` shots per
+second. Wave 4 delivers 104 enemies at a 0.06s interval, about **16.7 per second**. The wall is
+literally twice the guns. At fire-rate Lv7 (0.29s) the same four towers make ~13.8/sec, which is
+why the upgraded save wins comfortably.
+
+**This is the design working, not failing.** CLAUDE.md's economy section already says every level
+must be tuned against an assumed upgrade level, and that grinding is an intended mechanic rather
+than a failure state. The loop closes correctly: the lost round still **banked 422 silver** (loss
+keeps silver — verified), gold was correctly **not** awarded, and that silver buys the upgrades
+that win the replay.
+
+**Enemy counts were NOT reduced — explicit decision, 2026-09-06.** `difficulty_scale` stays at 1.6
+and every wave stays on the authored curve. Do not "helpfully" lower these later; the loss is the
+intended first-run outcome, and this is now the second entry (with goblin HP) on the list of
+tempting difficulty edits that would be wrong.
+
+**One thing this does surface, and it belongs to A4 not A2:** a brand-new player's *first ever game
+is a loss*, with no explanation of why or of the fact that their silver was kept. That is an
+onboarding and UI problem — the result screen currently says "Round Lost" and nothing else — and
+A4's MVP UI is where it should be answered.
+
+### Comparison against A1's tuning note
+
+a1_plan recorded that a fresh save "lost **four** lives across the whole round". That figure is now
+**dead** and should not be quoted: it predates skeletons, ogres, and the wave composition that
+replaced plain goblins — and it predates the `SKELETON_PACK` fix, which made skeletons rush as
+squads for the first time. A2 is meaningfully harder than A1 by design.
+
+---
+
 ### Added scope: the bench harness (A3's M-0, pulled forward)
 
 [a3_plan.md](a3_plan.md)'s measurement harness lands **here**, not in A3. It is purely additive —
@@ -311,10 +414,11 @@ It also pays off two debts A1 deliberately left open:
   goblin HP is a binary cliff that breaks the difficulty curve. The Ogre at 80 HP fixes it for
   free — 8 archer hits, so upgrades bite immediately and measurably.
 - **Divine Smite had no target worth a 60s cooldown** — the reason it moved out of A1. The Ogre
-  gives it one.
+  gives it one. That debt is now *paid* even though Smite itself ships in A5: the target exists and
+  is verified, so A5 inherits a solved design problem rather than an open one.
 
 **Scope:** two renames, an enemy foundation, three enemy types, wave composition, a life-cost
-channel, three abilities. No new autoloads, no save-format change, nothing persistent added.
+channel, and **one** ability (A-1 Rain of Arrows). A-2 and A-3 moved to A5. No new autoloads, no save-format change, nothing persistent added.
 `PlayerData` and `TowerStats` untouched.
 
 **Decisions taken with the user:** Troll deferred; both renames done, machinery first; A2 ships
@@ -496,18 +600,20 @@ the enemy just built. Note that `archer.gd:48-56` ≡ `wizard.gd:47-56`; extract
 
 ---
 
-## The three abilities
+## The abilities — one here, two handed to A5
+
+**A2 ships A-1 Rain of Arrows.** A-2 Divine Smite and A-3 Dragon Fire moved to A5 by decision.
+Their design notes are kept below rather than moved wholesale, because they were written against
+this codebase and are still accurate — minus the parts A-1 has already built.
 
 **A1's registry generalises well.** Per-id cooldowns (90s and 3s already cannot collide),
 selection, number keys, the bar (`for ability_id in manager.ABILITIES` — four slots free), the
 `_unhandled_input` routing, and the "payload owns its own numbers" contract all carry unchanged.
-Adding an ability is one dict entry plus one payload folder, as B-4 promised.
 
-**Rain of Arrows** (30s, area over time) — fits perfectly, **zero system change**. Duration is
-internal to the payload: tick `map.get_enemies_in_radius()` instead of querying once. **Build this
-first — it is the commit that proves the registry works.** Requires `is_instance_valid()` on
-**every tick**, not just once: a 3-second barrage re-reads a grid rebuilt 180 times with enemies
-freed out from under it.
+**Rain of Arrows** (30s, area over time) — **built and verified.** See *A-1 shipped* above for what
+it actually cost, which was more than "zero system change" once the aiming became directional.
+
+### Handed to A5
 
 **Divine Smite** (60s, single target) — fits, with one honest compromise. `cast(id, world_pos)`
 gives a position, not a target. Give it a small acquisition radius (~40) and have the payload pick
@@ -515,17 +621,25 @@ the **highest-HP enemy** inside it. Eight lines, entirely in the payload; the sm
 is an honest preview of the acquisition area. **A whiff consumes the cooldown** — the boulder
 already does, and refusing would force the manager to know about targets.
 
-**Dragon Fire** (90s, strafing run) — the one place the system strains.
+It is the **easy** case now: point-aimed and circular, so it takes the "one registry entry plus one
+payload folder" path A-1 demonstrated, with no manager or marker change at all.
 
-- *Direction:* **fix the axis in A2** — left→right through the clicked Y. Drag-to-aim needs a
-  second aim point and marker rotation; out of scope.
-- *Positioning:* costs nothing. The payload reads its own `global_position` in `_ready()` as the
-  aim point and repositions off-screen — the boulder already establishes "root parks at the aim
-  point, sprite travels"; the dragon inverts which part moves. **No manager change.**
-- *The marker:* **the one real system change.** `aim_marker.gd` hardcodes `draw_circle`. Read an
-  optional `SHAPE` const off the payload script exactly as `RADIUS` already is, default
-  `"circle"`, and `match` in `_draw()`. Add `"strip"`. ~15 lines, one file. Shape must obey the
-  same rule as radius: the preview cannot be able to drift from the real blast.
+**Dragon Fire** (90s, strafing run) — was "the one place the system strains". **A-1 removed most of
+that strain:**
+
+- *Direction:* the plan was to **fix the axis** (left→right through the clicked Y) because
+  drag-to-aim needed a second aim point and marker rotation. **Both now exist** — A-1's
+  `"aim_mode": "directional"` is exactly that, so Dragon Fire can be genuinely aimed and the
+  fixed-axis compromise dropped. Decide it at A5 rather than inheriting either answer.
+- *Positioning:* costs nothing — but note A-1's correction: a payload **cannot** read its own
+  `global_position` or `global_rotation` in `_ready()`, because `cast()` assigns both *after*
+  `add_child()`. Read them at first tick, as rain does.
+- *The marker:* was "**the one real system change**". **Already built by A-1** — `aim_marker.gd`
+  reads an optional `SHAPE` const via `get_script_constant_map()`, defaults to `"circle"`, and
+  matches in `_draw()`. Dragon Fire adds a `"strip"` branch to an existing mechanism rather than
+  creating the mechanism.
+- *The round rule:* a ~2s strafing run is a multi-tick payload, so it obeys A-1's rule — check the
+  round at the top of every tick, and `is_instance_valid()` every tick, not once.
 
 ### A new bug class A2 introduces
 
@@ -572,7 +686,7 @@ Twelve commits. **Every one leaves the game launchable and playable.**
 
 - **R-0 → R-1 → R-2 block everything.** Do not write a new payload or enemy before R-1, or you
   write three new files against `get_zombies_in_radius` and rename them too.
-- **After R-2, E (3–7) and A (8–10) are independent** and touch disjoint files — except A-2's
+- **After R-2, E (3–7) and A (8, now A2's only ability step) are independent** and touch disjoint files — except A-2's
   *verification* wants E-5's Ogre. Two people: parallel, rejoin at 11.
 - **E-1 and E-2 are the A1 Step 0 pattern** — additive seams changing nothing observable, so the
   risky commits (E-3 accounting, E-5 balance) land against a proven-unmoved foundation.
@@ -596,10 +710,11 @@ screenshot.
    spawns, no stale spawn plan, both counters zero at PRE_ROUND. E-3's plan array is new
    round-scoped state that `reset()` must clear — the exact shape of the bug A1's Timer fix
    prevented.
-2. **Rain ticking, Dragon crossing, a boulder impacting and two fireballs landing on one dense
-   cluster in the same frame — then lose the round during it.** No `previously freed`, no damage
-   applied to force-cleared enemies. A1 proved four simultaneous boulders; A2 raises the bar
-   because payloads now persist across the round boundary.
+2. **A rain barrage ticking, a boulder impacting and two fireballs landing on one dense cluster
+   in the same frame — then lose the round during it.** No `previously freed`, no damage applied to
+   force-cleared enemies. A1 proved four simultaneous boulders; A2 raises the bar because payloads
+   now persist across the round boundary. (Dragon Fire dropped from this case with the A5 move;
+   re-add it there.)
 
 ---
 
@@ -608,8 +723,11 @@ screenshot.
 - **The Troll boss** and any boss-wave structure. A2 owes it only the empty `_on_damaged()` hook;
   it then becomes a `.tscn`, a registry entry and a six-line subclass whenever scheduled.
 - Per-type separation radius, mass, or any spatial-grid change (A3 owns this layer)
-- Tower targeting priority (Divine Smite is the answer)
-- Drag-to-aim direction for Dragon Fire
+- Tower targeting priority (Divine Smite is the answer — now an A5 item)
+- ~~Drag-to-aim direction for Dragon Fire~~ — **no longer out of scope, and no longer future work:**
+  A-1 built directional aiming, so A5 inherits it. Struck rather than deleted, because "we decided
+  not to" and "we already did" are different states and this list should not blur them.
+- A-2 Divine Smite and A-3 Dragon Fire themselves (moved to A5)
 - De-duplicating `archer.gd`/`wizard.gd` targeting blocks
 - Overlapping waves; anything raising the concurrent-enemy ceiling (A3)
 - `TileMapLayer` migration (A3, bundled — Known issue 5)
