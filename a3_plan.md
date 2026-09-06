@@ -59,12 +59,34 @@ Net effect: **nothing below roughly a 15% change can be distinguished from noise
 this ladder predict less than that individually. This is the single biggest practical obstacle to
 finishing A3 as designed, and it is not a code problem.
 
-**The within-process degradation is unexplained.** Not thermal (an idle gap does not recover it),
-not leaked nodes (`node_count` is constant), not positional drift (the lattice is frozen). S-1 was
-expected to test the PhysicsServer2D hypothesis and **did not fix it** — the degradation persists
-with `phys_pairs` at 0. Remaining candidates: allocator fragmentation from creating/destroying 600
-nodes per run, or editor-side accumulation in the hosted process. **Worth one focused
-investigation** — a reliable instrument makes every later rung cheaper.
+**The within-process degradation is narrowed but not solved.** Not thermal (an idle gap does not
+recover it), not leaked nodes (`node_count` is constant), not positional drift (the lattice is
+frozen), and not physics — S-1 emptied the broadphase and the degradation survived.
+
+**Measured 2026-09-06, back-to-back runs within one process, by variant:**
+
+| Variant | run 1 | run 2 | run 3 | trend |
+|---|---|---|---|---|
+| V0 (full) | 67.5 | 98.3 | 94.3 | **+45%** |
+| V0 (full, second process) | 62.6 | 78.3 | 85.9 | **+37%** |
+| V4 (return immediately, grid rebuild ON) | 20.6 | 16.9 | 19.2 | **none** |
+| V5 (return immediately, grid rebuild OFF) | 5.1 | 5.7 | 5.7 | **none** |
+
+**This kills both of the standing hypotheses.** V4 and V5 spawn and tear down the same 600 nodes
+per run as V0, so **allocator fragmentation from node churn and editor-side accumulation are both
+excluded** — they would degrade every variant equally, and they degrade none of them. V4 also runs
+the full per-frame grid rebuild, so **the rebuild's array churn is excluded too**.
+
+**What remains:** the degradation appears only when enemies run their actual `_physics_process`
+body — separation, the flow lookup, `is_wall`, and the move. In absolute terms it is roughly
+**+18 ms per frame at 600 enemies by the third run**, which is close to separation's entire
+measured cost (~15 ms). It behaves like separation getting dramatically more expensive over a
+process's lifetime, with the lattice frozen and every position identical between runs.
+
+That is a strange result and it is not yet explained. **It is also the most interesting lead A3 has
+left**, because whatever makes the *same work on the same positions* cost 45% more after a few
+minutes is a real effect — and if it happens in the bench it plausibly happens in a long play
+session too, where nobody has ever looked for it.
 
 ### Problem 2 — the cost model has been wrong twice, the same way both times
 
