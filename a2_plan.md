@@ -1,6 +1,81 @@
 # A2 — "Enemy Variety" — Implementation Work Order
 
-**Status: in progress — step 0 (R-0) shipped and verified. Steps 1–11 remain.**
+**Status: in progress — the whole enemy track is built and verified. Only the three abilities
+and the tune/docs pass remain.**
+
+> [!NOTE]
+> **E-5 (ogre) is verified.** Ran 2026-09-05 against the reopened editor. All six checklist steps
+> below passed; two defects were found and fixed in `_build_waves()` along the way.
+>
+> **What the checklist confirmed:**
+> 1. `script_check` clean on `enemy_types.gd` and `wave_manager.gd`.
+> 2. Game starts clean. `setup()` ran and `_assert_registries_agree()` stayed silent, so the ogre
+>    has both registry halves. The hand-written `ogre.tscn` parses, `enemy_id` binds, and
+>    `_resolve_stats()` returned every value: hp 80, speed 100, silver 12, life_cost 3,
+>    `separation_weight` 0.15 — and it joined `Enemy.GROUP` **in code**, per R-0's guarantee.
+> 3. Waves 3/4/5 each carry an ogre group. **Totals were wrong before the fix below** — see
+>    *Two defects found in `_build_waves()`*.
+> 4. **Life cost:** measured on a deliberately quiet board (spawn timer stopped, board cleared,
+>    counters intact) so it was a genuine single-event reading. Lives 20 → **17**;
+>    `enemies_to_resolve` and `wave_remaining` each **−1**. Exactly as designed.
+> 5. **Known issue 1 closes.** `TowerStats` resolves archer damage to 10 at upgrade level 0 and
+>    12 at level 1. A live ogre took 7 × 10 → hp 10 alive, and died on the **8th**; at 12 it took
+>    6 → hp 8 alive, and died on the **7th**. The damage track is live and each upgrade removes a
+>    shot. CLAUDE.md's Known issue 1 can be marked closed.
+> 6. **Full round completes.** Post-fix: 408 spawned (336 goblin / 63 skeleton / 9 ogre), **won,
+>    12/20 lives, 890 silver**, zero errors in `debugger_get_log`. Per-wave silver was exact at
+>    every boundary (wave 3 `+154` = 71×2 + 1 ogre×12; wave 4 `+238` = 101×2 + 3×12), and the
+>    round total reconciles precisely: 8 leaked × 2 silver = the 16 short of the 906 maximum.
+>
+> **Bench re-baseline, post-E-5** (the M-0 harness, as this plan intended it to be used):
+> `| M-0 | V0 | 600 | packed | 133.33 | 144.88 | 40.00 | 52.24 | 66.7 | 180 | 1843 |`
+> — **66.7 µs/enemy**, so the 60 Hz ceiling is `16600 / 66.7` ≈ **249 enemies**, consistent with
+> CLAUDE.md's documented ~200–250 budget. E-1's `separation_weight` multiply cost nothing visible.
+>
+> **Caveat on the tuning signal.** This round was won on a heavily-upgraded save (archer range
+> Lv11, fire-rate Lv7, damage Lv4), not a fresh one. It verifies the *mechanics*, not the
+> difficulty curve — a fresh-save round still belongs in step 11.
+
+### Two defects found in `_build_waves()` — both fixed
+
+Both were in the same six lines, and neither was visible to the acceptance checks that had already
+passed. Fixed together, then re-verified with a full round.
+
+**1. Scaled wave totals drifted +1.** `_build_waves()` rounded **each group independently**, so
+per-group rounding errors accumulated instead of cancelling: at `difficulty_scale` 1.6, wave 5's
+76/16/3 became 122/26/5 = **153**, while the wave's authored total of 95 scales to **152**. Waves 3
+and 5 were each one enemy over.
+
+The drift only appeared once **E-5 added a third group** — with two groups the errors happened to
+cancel, which is why waves 3 and 5 were exact before the ogre landed. A drift that surfaces when
+you add content is precisely the kind that gets blamed on the content.
+
+Fixed with **largest-remainder apportionment**: floor every group, then hand the leftover units to
+whichever groups were rounded down hardest — deliberately the same rule `_build_spawn_plan()`
+already uses to interleave types, applied here to counts. `maxi(1, ...)` still applies per group,
+so a one-ogre group can never be scaled out of existence. Totals are now **32/48/72/104/152**,
+exactly the authored curve × 1.6, and the round spawns **408** — matching A1's figure again.
+
+**2. `SKELETON_PACK` was inert — E-4 shipped a feature that did nothing.** `_build_waves()`
+constructed `{"type", "count"}` and **dropped the `pack` key**. `_build_spawn_plan()` reads `pack`
+off the groups *that function produces*, not off `WAVE_TABLE`, so `g.get("pack", 1)` always
+returned 1. Skeletons had never once arrived as a squad, in any round played or measured.
+
+Confirmed by inspection of the real spawn plan rather than by reading: wave 2's plan contained six
+skeletons, **every one isolated**. Feeding the same groups in by hand *with* `pack` present
+produced contiguous runs of 4 and 2 — proving `_build_spawn_plan()` was correct all along and the
+fault was entirely upstream.
+
+**Why nothing caught it.** E-4's acceptance criterion was that wave totals stay on the authored
+curve — and this bug does not affect totals at all. It produced no error, no warning, and a
+perfectly valid-looking round. The lesson generalises past this project, and is the same shape as
+R-0's: **an acceptance check that only reads the aggregate cannot see a defect in the arrangement.**
+E-4 needed a check that looked at the *order* of the spawn plan, which is the thing it changed.
+
+**It is a real difficulty change.** With packs working, the same round now loses **12/20** lives
+instead of 14/20 — skeletons genuinely rush the choke as designed. Still a comfortable win, but
+step 11's tuning pass should treat post-fix numbers as the only valid baseline; every skeleton
+measurement taken before this was of a feature that was switched off.
 
 Progress against the Sequencing table below:
 
@@ -13,10 +88,152 @@ Progress against the Sequencing table below:
 | 3 · E-1 enemy base + registry | ✅ **done and verified** |
 | 4 · E-2 life-cost channel | ✅ **done and verified** |
 | 5 · E-3 wave composition | ✅ **done and verified** |
-| 6 · E-4 skeleton | ✅ **done and verified** |
-| 7 · E-5 ogre | not started |
-| 8–10 · ability track (A-1..A-3) | not started |
+| 6 · E-4 skeleton | ✅ **done and verified** — but its `pack` was inert until E-5's verification pass; see above |
+| 7 · E-5 ogre | ✅ **done and verified** — Known issue 1 closed; see above |
+| 8 · A-1 Rain of Arrows | ✅ **done and verified** — see below |
+| 9–10 · ability track (A-2, A-3) | not started |
 | 11 · tune + docs | not started |
+
+### A-1 shipped — and what it cost the registry claim
+
+**A-1 first shipped exactly as B-4 promised: one `ABILITIES` row and not one other line**, with a
+circular point-aimed blast. Every consumer worked unedited — the bar built slot 2, `KEY_2`
+selected, `get_radius` returned 110 off `payload.RADIUS`, and the marker resized itself.
+
+**Then the aiming was changed by decision** to a rotatable rectangle: press pins the base edge,
+moving the cursor swings the far end around it, release casts. **That ends the "one registry entry"
+property**, and the honest statement of B-4's promise is now narrower:
+
+> Adding a **point-aimed** ability is one registry entry plus one payload folder. Adding a new
+> **aiming model** costs `ability_manager` and `aim_marker` as well — once per model, not once per
+> ability.
+
+That is still a good seam, and the second directional ability will cost a registry row again. But
+the original claim was measured against the easy case, and saying so is the point of writing it
+down.
+
+**Numbers** (step-11 tuning material, not settled): `SHAPE "rect"`, `WIDTH 90`, `LENGTH 260`,
+`DAMAGE_PER_TICK 4`, `TICK_INTERVAL 0.25`, `DURATION 3.0` — 12 ticks, 48 damage to anything that
+stands in it — on a 30s cooldown. **Length is fixed and the cursor sets the angle only**, so the
+covered area cannot be inflated by dragging further; that was a deliberate choice over a
+stretch-to-cursor rectangle, whose area would have varied ~2.7x with drag distance.
+
+**`aim_marker` gained `SHAPE` here rather than at A-3.** Built exactly as a2_plan specced it for
+Dragon Fire — an optional const read off the payload, default `"circle"`, `match` in `_draw()` —
+so it is general, not a Rain-specific branch. Read via `get_script_constant_map()` rather than
+`payload.SHAPE`, because a *missing* optional constant is an error under direct access but a clean
+default through the map; `boulder.gd` declares only `RADIUS` and is untouched by any of it.
+
+**Knock-on for A-3:** drag-to-aim now exists, so Dragon Fire need not ship the fixed left→right
+axis its section still describes. Deciding that is deferred to A-3 itself — noted here so it is a
+choice rather than an oversight. a2_plan's *Out of scope* list still says "drag-to-aim direction",
+which is now stale for that reason.
+
+**Verified, all measured rather than asserted:**
+
+- **Ticks over duration.** An 80 HP ogre parked in the blast finished on **32 HP** — exactly
+  12 × 4, so every tick landed and the payload stopped on schedule.
+- **Every edge of the rectangle, probed independently.** Five ogres around a cast aimed along +X
+  from (275,425): one inside → **32**; one **behind the base** → 80; one **beyond `LENGTH`** → 80;
+  one **outside half-width** → 80; one just inside half-width → **32**. Each of the four rejection
+  branches is therefore covered by a case that fails if that branch is wrong.
+- **Rotation proved by discriminator, not by inspection.** The same ogre that was inside the +X
+  cast was left **untouched at 80** when the cast was re-aimed 90° from the same base, while one
+  up-range took the full 48. Same anchor, same enemies, different aim, different victims — which
+  a hit test that silently ignored rotation could not produce.
+- **Aim maths:** cursor above the base → rotation −π/2; cursor right → 0; cursor up-left → −3π/4;
+  and a cursor resting exactly **on** the anchor **holds the previous direction** instead of
+  snapping to an arbitrary axis.
+- **Boulder is unregressed in both respects:** still point-aimed (marker follows the cursor,
+  rotation 0, circle r70) and still exactly 15 damage.
+- **Silver routes normally.** Five goblins in the blast died and paid **+10**, straight through
+  `_die()` → `on_enemy_killed()`. Nothing about scoring needed to know an ability existed.
+- **Clicking slot 2 casts nothing.** It selected, spawned no payload and consumed no cooldown —
+  the `_unhandled_input` guarantee, now demonstrated rather than reasoned about.
+- **Per-ability cooldowns really are independent.** Boulder cooling at 0.08s while rain sat at 0.
+- **A full round with barrages in it: won, 16/20 lives, +898 silver** — exact, being the 906
+  maximum minus the four leaked enemies' 2 each. Every wave boundary reconciled to the silver
+  (wave 3 `+154` = 71×2 + 1 ogre×12; wave 4 `+236` = 238 minus one leak). Casting into a
+  100+ enemy wave produced no `previously freed`, which is the per-tick `is_instance_valid()`
+  guard doing its job under real load rather than in a staged test.
+- **Cooldown gating holds under play:** a cast attempted 20s into the 30s cooldown returned
+  `false` and changed nothing.
+- **A barrage that outlived its wave** — cast just as wave 4 cleared, ticking through the
+  breather on an empty board — freed itself cleanly. The round stays `IN_ROUND` through a
+  breather, so the round-check correctly does *not* fire there.
+- Zero errors in `debugger_get_log` across every cast.
+
+### The visual: real arrows, and two things only a frozen frame could show
+
+Uses **the archer's `arrow.png`**, not a placeholder — a deliberate exception to colocation, on
+the grounds that these are the same object and two copies would silently diverge. Each tick drops a
+volley of 7 arrow sprites at random points in the box; they tween down and free themselves.
+
+**The arrows are cosmetic and the damage is not.** Where a sprite lands has no bearing on the box
+test. That line is deliberate: a payload whose real footprint depended on `randf()` would make
+every acceptance figure in this plan unreproducible — the same argument `_build_spawn_plan()` makes
+for a deterministic interleave over a shuffle.
+
+**Two corrections the rotation forced**, neither obvious until drawn:
+
+- **World-down must be computed in the payload's LOCAL frame** (`Vector2(0,1).rotated(-rotation)`),
+  or the arrows fall along the rectangle's own axis — so a sideways-aimed barrage shows arrows
+  flying *horizontally*, the one thing "rain" must never do. The zone rotates with the aim; the
+  arrows must not.
+- **The sprite's own facing needs the same correction** (`PI/2 - rotation`), since `arrow.png`
+  points +X. Verified by casting at two aims and confirming the arrows' **`global_rotation` is
+  π/2 in both** — a local rotation of π/2 under a zero-rotation payload, and π under one rotated
+  −π/2. Same world-down either way.
+
+**Two flaws that only a frozen frame revealed**, both invisible to any amount of reasoning:
+
+1. **340px in 0.22s is ~1500 px/s** — faster than the eye tracks, so the barrage read as an empty
+   zone with occasional flickers above it. Shortened to 220px over 0.32s.
+2. **A volley spawned as a rigid horizontal line and landed in unison** — a falling ruler, not
+   rain. Fixed with per-arrow jitter on the fall time, which desynchronises the volley and varies
+   each arrow's speed.
+
+Both were found by pausing in the same expression as the cast (the only way to freeze a 3s effect
+when the round trip is ~3s) and *looking*. Worth remembering: this project verifies by measurement,
+and measurement is exactly what could not have caught either of these.
+
+### The multi-tick payload rule, and how it was actually proved
+
+Payloads can now outlive the round, so every multi-tick payload checks the round at the top of each
+tick and frees itself otherwise. `in`-guarded on `round_state`, so `clean_area.tscn` — which has no
+round lifecycle — still runs payloads unmodified, the same tolerance `enemy.gd` extends it.
+
+**The test was built so it could fail.** Ending the round with `_end_round(false)` would have been
+worthless: the loss path force-clears the board, so a payload that ignored the rule entirely would
+still damage nothing, and the check would pass for the wrong reason. Used the **win** path instead,
+which leaves enemies standing: cast a barrage onto an 80 HP ogre and ended the round in the *same
+frame*. The ogre finished on **80 HP** — untouched, where an unguarded payload would have taken 48
+off it. That is the rule firing, not merely the absence of a crash.
+
+Same shape as R-0's lesson and E-4's: **a check that passes whether or not the mechanism works is
+not evidence.**
+
+### Two implementation traps worth carrying to A-2 and A-3
+
+1. **A payload must not read `global_position` — or now `global_rotation` — in `_ready()`.**
+   `ability_manager.cast()` calls `add_child()` **before** assigning either, so `_ready()` still
+   sees the origin and a zero angle. Rain reads both per tick; `boulder.gd` dodges the same trap by
+   touching only `sprite.position` in `_ready()`. Directional aiming makes this sharper, because a
+   payload now has *two* pieces of transform to get wrong. Divine Smite's acquisition query and
+   Dragon Fire's aim point both want a position at spawn — this will bite them.
+2. **`is_instance_valid()` on every tick, not once.** A 3s barrage reads a grid rebuilt ~180 times
+   underneath it — Known issue 1b stretched over time rather than over one frame.
+
+3. **A rotated hit test wants `to_local()`, not trigonometry.** The containment check is a plain
+   axis-aligned box test in the payload's own frame — `0 ≤ x ≤ LENGTH`, `abs(y) ≤ WIDTH/2` — with
+   rotation falling out of the node transform for free. No angle is stored twice, so the preview
+   and the damage volume cannot drift apart. The grid is queried from the rectangle's **centre**
+   with its half-diagonal (~138px) rather than from the base with its full length (260), which is
+   a much tighter bound for the box test to filter.
+
+**One deliberate departure from boulder:** the payload sits at `z_index 5`, below enemies (10),
+where boulder is 30. A falling rock belongs on top of the horde; a ground-effect area belongs
+under it, or it hides the enemies the player is trying to read. Confirmed visually.
 
 ### Added scope: the bench harness (A3's M-0, pulled forward)
 
@@ -346,7 +563,7 @@ Twelve commits. **Every one leaves the game launchable and playable.**
 | 5 | **E-3 · Wave composition.** `groups`, derived `count`, spawn plan array. Still 100% goblin. | `wave_manager.gd` | Totals match pre-change exactly (408 at scale 1.6). `count == plan.size()` asserted. |
 | 6 | **E-4 · Skeleton.** Registry entry, `.tscn`, `ignore_separation`, pack runs. Waves 2+. | `enemy_types.gd`, `skeleton.tscn`, `wave_manager.gd` | Skeletons visibly slide through the crowd and reach the choke first. FPS holds. |
 | 7 | **E-5 · Ogre.** hp 80, `life_cost 3`, `separation_weight 0.15`, bigger sprite, higher silver. Waves 3+. | `enemy_types.gd`, `ogre.tscn`, `wave_manager.gd` | One escaped ogre costs exactly 3 lives. Archer needs 8 hits — **buy a damage upgrade and measure it drop to 7.** That is Known issue 1 closing. |
-| 8 | **A-1 · Rain of Arrows.** Registry entry, area-over-time payload, the shared round-ended rule. | `ability_manager.gd`, `entities/abilities/rain_of_arrows/` | Ticks over duration; silver routes normally; bar shows 2 slots, key `2` selects; **clicking slot 2 casts nothing**; no `previously freed`. |
+| 8 | ✅ **A-1 · Rain of Arrows.** Registry entry, area-over-time payload, the shared round-ended rule. | `ability_manager.gd`, `entities/abilities/rain_of_arrows/` | Ticks over duration; silver routes normally; bar shows 2 slots, key `2` selects; **clicking slot 2 casts nothing**; no `previously freed`. |
 | 9 | **A-2 · Divine Smite.** Acquisition radius, highest-HP target. No marker change. | `ability_manager.gd`, `entities/abilities/divine_smite/` | Smites an ogre out of a goblin crowd. Whiff still consumes cooldown. |
 | 10 | **A-3 · Dragon Fire.** Fixed-axis run; `aim_marker` gains `SHAPE` + `"strip"`. | `ability_manager.gd`, `entities/abilities/dragon_fire/`, `ui/aim_marker/aim_marker.gd` | Run damages along the band; boulder's circle unchanged; a round ending mid-run neither crashes nor damages cleared enemies. |
 | 11 | **Tune + verify + docs.** Composition, life budget vs ogres, `difficulty_scale` re-measure, `initial_cooldown`. Update CLAUDE.md (layout, separation, Known issues 1/1b, the `set_group("zombie", …)` gotcha), alpha_plan A2 → ✅. | numbers + docs | Proof cases below pass. |

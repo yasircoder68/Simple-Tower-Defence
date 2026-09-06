@@ -4,14 +4,23 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: A1 complete — the first itch.io release is built.** Pathfinding, swarm AI, tower
-building/removal/moving, the silver/gold economy, permanent upgrades, round win/lose and
-`user://` persistence all work. On top of that, **progressive waves** and the **boulder
-ability** now make a round something you play rather than watch: five escalating waves with a
-breather between them, and a hold-to-aim ability on a 3s cooldown that is the only live input.
+**Status: A1 complete; A2 through E-5 and A-1.** Pathfinding, swarm AI, tower building/removal/moving,
+the silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work.
+A1 added **progressive waves** and the **boulder ability** — five escalating waves with a
+breather, and a hold-to-aim ability on a 3s cooldown that is the only live input.
 
-Not yet built: multiple enemy types, multiple maps, the horde engine rewrite, gold sinks, and
-any real art or UI theme. That's A2 onward — see Build order.
+A2 so far: the zombie→goblin rename plus the type-neutral `enemy_*` machinery rename, a shared
+`class_name Enemy` base with a stat registry, a per-enemy life-cost channel, wave composition,
+and **three enemy types — goblin, skeleton, ogre**. Plus a self-measuring bench harness pulled
+forward from A3, and **A-1 Rain of Arrows** — the second ability, and the one that introduced
+directional (rotatable) aiming.
+
+Not yet built: two of the three remaining abilities (A2's A-2 Divine Smite and A-3 Dragon Fire),
+the horde engine rewrite, MVP UI, gold sinks, multiple maps, any real art. See Build order, and [a2_plan.md](a2_plan.md) for
+step-by-step state.
+
+**The game has not shipped to itch yet** — a Windows export exists, but there is no main menu,
+no pause, and the upgrade panel is a debug readout bolted to the play screen. That is **A4**.
 
 ---
 
@@ -93,7 +102,7 @@ The only expensive-to-retrofit decision in the whole design. Keep these in separ
 
 | Persistent (`user://` save, `PlayerData`) | Round-scoped (discarded, `level_controller`/`base_health`/managers) |
 |---|---|
-| silver, gold | `round_state`, `zombies_to_resolve` |
+| silver, gold | `round_state`, `enemies_to_resolve` |
 | upgrade level per tower type | lives (`base_health.lives`) |
 | unlocked tower types | placed tower instances (`towers_by_cell`) |
 | levels already cleared (gold-once ledger) | current wave + phase (`wave_manager`) |
@@ -157,12 +166,20 @@ zombie game prototype 1/
     ├── entities/            ← COLOCATED: each thing owns a folder with its scene+script+art
     │   ├── towers/archer/       archer_tower.tscn/.gd, archer.tscn/.gd, archer*.png
     │   ├── towers/wizard/       wizard_tower.tscn, wizard.tscn/.gd, wizard*.png
-    │   ├── enemies/zombie/      zombie.tscn/.gd        (→ goblin/ at the A2 rename)
+    │   ├── enemies/enemy.gd     ← the SHARED base (class_name Enemy). NOT in a per-type
+    │   │                          folder: goblin/skeleton/ogre are scenes pointing at it.
+    │   │                          The one documented exception to colocation.
+    │   ├── enemies/goblin/      goblin.tscn        (no script of its own)
+    │   ├── enemies/skeleton/    skeleton.tscn      (ditto)
+    │   ├── enemies/ogre/        ogre.tscn          (ditto)
     │   ├── abilities/boulder/   boulder.tscn/.gd       (A1; no PNG yet — see Known issues)
+    │   ├── abilities/rain_of_arrows/  rain_of_arrows.tscn/.gd  (A2's A-1; reuses the
+    │   │                          archer's arrow.png — a documented colocation exception)
     │   └── projectiles/         arrow/, fire/
     ├── levels/              ← level_01.tscn + tilesets/my_tiles.tscn
     ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd,
-    │                          wave_manager.gd, ability_manager.gd
+    │                          wave_manager.gd, ability_manager.gd, enemy_types.gd,
+    │                          bench.gd (dev-only horde benchmark)
     ├── ui/                  ← build_sidebar/, ghost_tower/, aim_marker/, ability_bar/,
     │                          round_ui.gd, fps_counter.gd
     ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
@@ -217,8 +234,8 @@ movement anywhere** — no `move_and_slide`, no rigid bodies. Wall collision is 
 `map.is_wall()` point test with per-axis sliding.
 
 ### Separation (the perf-critical path)
-`level_controller.gd` rebuilds a **spatial grid** every physics frame: `zombie_grid` maps a 32px cell to a
-plain `Array` of enemy *positions*, with `zombie_grid_nodes` holding the parallel node refs for
+`level_controller.gd` rebuilds a **spatial grid** every physics frame: `enemy_grid` maps a 32px cell to a
+plain `Array` of enemy *positions*, with `enemy_grid_nodes` holding the parallel node refs for
 splash damage. Enemies read the 3×3 block around themselves for push-apart.
 
 Three rules were learned the hard way here — violate any of them and the framerate collapses:
@@ -259,11 +276,40 @@ part of `TowerStats` — it's not one of the three upgrade tracks the player buy
 size becomes upgradeable later, add it to `TowerStats` as a fourth track rather than
 conflating it with `range` (which governs target *acquisition* only).
 
+### Enemy types (A2)
+
+**`systems/enemy_types.gd`** is the single source of truth for enemy numbers — a `DEFAULTS` dict
+plus a `TYPES` dict where each entry states only what makes it unusual (`"goblin": {}` inherits
+everything). `Enemy._resolve_stats()` reads it at `_ready()`, exactly as the towers resolve from
+`TowerStats`.
+
+**Nothing is `@export`ed except `enemy_id`.** A `.tscn` carries identity and visuals, never stats
+— so a new enemy is a registry row plus a scene with **no script of its own**. Goblin, skeleton
+and ogre all point at `enemy.gd`.
+
+| | max_hp | speed | silver | life_cost | ignore_sep | sep_weight |
+|---|---|---|---|---|---|---|
+| goblin | 10 | 100 | 2 | 1 | false | 1.0 |
+| skeleton | 6 | 280 | 2 | 1 | **true** | 1.0 |
+| ogre | **80** | 100 | 12 | **3** | false | **0.15** |
+
+- **`ignore_separation`** is an early-out, so a skeleton is *cheaper* per frame than a goblin, not
+  dearer. It slides through the crowd instead of queueing behind it.
+- **`separation_weight`** scales how hard an enemy is pushed *by* others while it still pushes
+  them normally (it contributes its position to the grid like anything else). That asymmetry lets
+  the ogre plough a lane, and costs one float multiply with **no change to the spatial grid**.
+- **The two registry halves live in different files deliberately.** `enemy_types.gd` holds numbers
+  and contains **no `preload`**; the scene preloads live in `wave_manager.ENEMY_SCENES`. If the
+  stats file preloaded the scenes (which use `enemy.gd`, which preloads the stats) GDScript would
+  refuse the cycle. `wave_manager._assert_registries_agree()` checks the key sets match at setup.
+- **Behaviour hooks** `_on_spawn()` / `_on_damaged(amount)` / `_on_death()` are empty in the base
+  and **event-level, never per-frame**. Type differences that survive A3's manager-loop rewrite
+  are *data it can branch on*, not methods it must dispatch. Don't add a per-frame virtual.
+
 ### The enemy contract (A2 R-0)
 
-`zombie.gd` declares **`class_name Enemy`** — the class is already the shared enemy base; only the
-file name is stale until A2's R-2 rename. Two things live on it that the rest of the game depends
-on:
+`entities/enemies/enemy.gd` declares **`class_name Enemy`** — the shared base for every enemy
+type. Two things live on it that the rest of the game depends on:
 
 - **`Enemy.GROUP`** — the group every enemy joins, **in code**, via `add_to_group(GROUP)` in
   `_ready()`. It used to be scene data only (`groups=["zombie"]` in the `.tscn`, with no
@@ -306,7 +352,7 @@ position.
   would need a wave tag on every enemy and per-wave decrements — a real deferred cost, not a
   dodged one.
 - **How the round ends without the manager reaching into `_end_round()`:** `_start_wave()` tops up
-  `map.zombies_to_resolve` with the new wave's count, and `_begin_breather()` pre-reserves the
+  `map.enemies_to_resolve` with the new wave's count, and `_begin_breather()` pre-reserves the
   *next* wave's count before the gap opens. On the last wave nothing tops it up, so it reaches 0
   naturally and `level_controller`'s existing `_check_round_complete()` ends the round won —
   through the exact M1 path (gold-once ledger, save flush, `round_ended`). The two counters
@@ -318,11 +364,33 @@ position.
 - Level authoring is two exports: `wave_count` (rows used) and `difficulty_scale` (multiplier on
   count only — spawn interval is pacing, not difficulty).
 
-### Abilities (A1)
+### Abilities (A1, extended by A2's A-1)
 
-`systems/ability_manager.gd`, also round-scoped. A1 ships **one** entry in its `ABILITIES`
-registry — the boulder — but the registry, per-ability cooldown dict and selection bar exist
-already, because migrating one ability is far cheaper than migrating four in A2.
+`systems/ability_manager.gd`, round-scoped. Two entries in its `ABILITIES` registry: the boulder
+(A1) and Rain of Arrows (A2's A-1). The registry, per-ability cooldown dict and selection bar were
+built in A1 for one ability precisely so the second cost almost nothing — and that mostly held.
+
+**What adding an ability actually costs, measured on A-1:**
+
+- A **point-aimed** ability is **one registry entry plus one payload folder**, with no other change
+  to `ability_manager`. A-1 shipped that way first and every consumer worked untouched: the bar
+  built its slot, `KEY_2` selected, the aim marker sized itself.
+- A new **aiming model** costs `ability_manager` and `aim_marker` too — **once per model, not once
+  per ability.** A-1's rectangle is what proved this half. The next directional ability is a
+  registry row again.
+
+**Aim modes.** `"aim_mode"` in a registry entry, defaulting to `"point"`:
+
+| Mode | Behaviour |
+|---|---|
+| `"point"` (default) | Marker follows the cursor; release casts where it sits. Boulder. |
+| `"directional"` | Press pins an anchor, moving the cursor **rotates** the payload about it, release casts. Rain of Arrows. |
+
+**Preview geometry is read off the payload script**, never duplicated in the manager — the rule
+that keeps the aim preview from drifting from the real damage volume. `SHAPE` is an **optional**
+const (`"circle"` default, plus `"rect"`), read via **`get_script_constant_map()`** rather than
+`payload.SHAPE`: a missing optional constant is an *error* under direct access but a clean default
+through the map. `boulder.gd` declares only `RADIUS` and never had to learn any of this existed.
 
 - **`entities/abilities/boulder/`** — hold LMB to aim, release to drop; 3s cooldown, ~0.5s arc,
   radius 70, damage 15. A plain `Node2D`, **not** an `Area2D`: it queries the spatial grid at
@@ -336,13 +404,44 @@ already, because migrating one ability is far cheaper than migrating four in A2.
   `_upgrades_allowed()`. It is not a cached flag, because `reset()` is called both entering a
   round *and* leaving one (`start_new_round()`), so a cached flag would arm the boulder during
   the build phase.
-- **`ui/aim_marker/`** draws its circle and reads the radius from the *selected* ability's payload
-  script, so the preview cannot drift from the real blast.
+- **`entities/abilities/rain_of_arrows/`** — A2's A-1. A **rotatable rectangle** (`LENGTH` 260 ×
+  `WIDTH` 90) that ticks 4 damage every 0.25s for 3s, on a 30s cooldown. Press pins the base edge,
+  the cursor swings the far end around it, release casts. **Length is fixed and the cursor sets the
+  angle only**, so the covered area cannot be inflated by dragging further.
+  - **Containment is `to_local()` plus an axis-aligned box test** — `0 ≤ x ≤ LENGTH`,
+    `abs(y) ≤ WIDTH/2`. Rotation falls out of the node transform for free, so no angle is stored
+    twice and there is no trigonometry to get wrong.
+  - **The grid is queried from the rectangle's CENTRE with its half-diagonal** (~138px), not from
+    the base with its full length (260). Much tighter bound, so the box test rejects far fewer.
+  - **Falling arrows are cosmetic only.** Damage is the box test; where a sprite lands has no
+    effect on it. Keep it that way — tying damage to the visual would put `randf()` inside a
+    system this project verifies by exact measurement.
+- **`ui/aim_marker/`** draws the *selected* ability's shape and dimensions, handed in by the
+  manager from the payload script that owns them, so the preview cannot drift from the real blast.
+  `SHAPE` was specced for A-3 and landed at A-1; it is general, not a Rain-specific branch, so
+  Dragon Fire can inherit it rather than shipping its planned fixed left→right axis.
 - **`ui/ability_bar/`** is its own scene, deliberately not part of throwaway `round_ui.gd` — it is
   a permanent UI element (ui_plan UI-1), so building it inside the throwaway means building it
   twice. `build_sidebar` is the precedent.
-- Boulder kills route through `zombie._die()` → `map.on_zombie_killed()` like any other kill;
-  silver needed no wiring.
+- Ability kills route through `enemy.gd`'s `_die()` → `map.on_enemy_killed()` like any other kill;
+  silver needed no wiring for either payload.
+
+**The multi-tick payload rule (A2's A-1).** Boulder lives 0.5s, but a 3s barrage — and A-3's
+strafing run — can still be alive when a round ends. So:
+
+> **Any payload that ticks more than once checks the round at the top of every tick and frees
+> itself otherwise**, and re-checks `is_instance_valid()` on **every** tick, not once at spawn.
+
+`in`-guarded on `round_state`, so `clean_area.tscn` — which has no round lifecycle — still runs
+payloads unmodified, the same tolerance `enemy.gd` extends it. `is_instance_valid()` per tick
+matters because a 3s barrage reads a grid rebuilt ~180 times underneath it: Known issue 1b
+stretched over time rather than over a single frame.
+
+**A payload must not read `global_position` or `global_rotation` in `_ready()`.** `cast()` calls
+`add_child()` — which runs `_ready()` — **before** assigning either, so a payload reading its own
+transform there sees the origin and a zero angle. Boulder touches only `sprite.position` in
+`_ready()` and reads `global_position` at impact; rain reads both per tick. **This is the single
+easiest way to break a new ability**, and directional aiming doubled the surface.
 
 ### Round lifecycle
 
@@ -364,20 +463,20 @@ A1 handover.
   those two lines would leave the game stuck mid-drag for a real player. `_input()` now branches
   on LMB-press-over-an-occupied-cell (pick up) and RMB-release-over-an-occupied-cell (remove) in
   addition to the original press-drag-release placement flow.
-- **Enemies report their own fate.** `zombie.gd`'s `_die()` calls
-  `map.on_zombie_killed(silver_reward)`; `_escape()` calls `map.on_zombie_escaped()`. Both are
+- **Enemies report their own fate.** `enemy.gd`'s `_die()` calls
+  `map.on_enemy_killed(silver_reward)`; `_escape()` calls `map.on_enemy_escaped(life_cost)`. Both are
   `has_method`-guarded on the map side, so `clean_area.tscn`'s stripped-down test harness (no
-  round lifecycle at all) still runs zombies unmodified.
-- **A round completes when `zombies_to_resolve` hits 0** — every spawned zombie has been either
+  round lifecycle at all) still runs enemies unmodified.
+- **A round completes when `enemies_to_resolve` hits 0** — every spawned enemy has been either
   killed or has escaped. "Won" means "you didn't run out of lives," **not** "zero escapes." A
   round with 25 spawned and 3 escaped (17 lives left) is still a win.
 - **A loss short-circuits.** The instant `lives <= 0`, `_end_round(false)` fires immediately —
-  it does not wait for the remaining spawned-but-unresolved zombies to individually escape or
-  die. Those get force-cleared via `_clear_all_zombies()`, and `wave_manager.abort()` stops both
+  it does not wait for the remaining spawned-but-unresolved enemies to individually escape or
+  die. Those get force-cleared via `_clear_all_enemies()`, and `wave_manager.abort()` stops both
   the spawn and breather timers so nothing feeds a round that already ended.
-  Note `on_zombie_escaped()` returns *before* forwarding to `wave_manager.on_enemy_resolved()`,
+  Note `on_enemy_escaped()` returns *before* forwarding to `wave_manager.on_enemy_resolved()`,
   so the loss wins the race against a wave completing on the same escape. That is deliberate, and
-  it means `zombies_to_resolve` and `wave_remaining` can differ by exactly 1 at the moment of a
+  it means `enemies_to_resolve` and `wave_remaining` can differ by exactly 1 at the moment of a
   loss. Harmless — the round is over — but it reads like a desync if you find it cold.
 - **`start_new_round()`** (the "Play Again" flow) returns to `PRE_ROUND` **keeping the tower
   layout** — a layout you built survives replaying the level, and you can keep adding to it up
@@ -438,7 +537,7 @@ Measured on this machine, `level_01`, enemies spawned instantly:
 **The practical budget is ~200–250 enemies.** Beyond that the framerate falls off a cliff, and
 the falloff is super-linear in *density*, not in count.
 
-The cost is isolated to `zombie.gd::_separation()`. Confirmed by probe: at 600 enemies, with
+The cost is isolated to `enemy.gd::_separation()`. Confirmed by probe: at 600 enemies, with
 separation disabled the game runs at **60 FPS** (rendering 600 sprites is free); enabling it
 drops to 2–4.
 
@@ -506,19 +605,23 @@ enemies 10, aim marker 25, boulder 30).
 
 Still open, roughly by value:
 
-1. **The archer's damage upgrade track is inert.** Archer base damage is 10 and zombie HP is
-   exactly 10, so buying damage changes nothing (12 and 14 still one-shot a 10 HP enemy). Wizard
-   is unaffected (damage 3, four hits). **Measured, and deliberately not fixed:** raising zombie
-   HP is a binary cliff, not a dial — at HP 16 the archer needs two shots, roughly halving its
-   DPS, and a fresh-save round goes from a comfortable win to a loss at wave 4. A2's Ogre (80 HP)
-   and Troll (1000 HP) fix this for free. Don't "helpfully" raise zombie HP to fix the track.
+1. ~~**The archer's damage upgrade track is inert.**~~ **CLOSED by A2's ogre (E-5).** Against a
+   10 HP goblin, +2 archer damage changed nothing (12 and 14 still one-shot it). Against an 80 HP
+   ogre, base damage 10 is eight shots and each upgrade removes one. **Verified live 2026-09-06**,
+   not merely reasoned: a real ogre took 7 hits of 10 and survived on 10 HP, dying on the 8th; at
+   12 it survived 6 on 8 HP and died on the 7th. `TowerStats` resolves archer damage to exactly 10
+   and 12 at upgrade levels 0 and 1. **Note what was NOT done:**
+   raising goblin HP was measured and rejected — it is a binary cliff, not a dial (at HP 16 the
+   archer needs two shots, roughly halving its DPS, and a fresh-save round went from a comfortable
+   win to a loss at wave 4). Adding a high-HP enemy fixed the track without touching the curve.
+   **Don't "helpfully" raise goblin HP.**
 1b. **Freed-node access through the spatial grid — FIXED, but read this before touching the
-   grid.** `zombie_grid_nodes` caches node references at rebuild time; splash damage reads
+   grid.** `enemy_grid_nodes` caches node references at rebuild time; splash damage reads
    them later in the same frame, by which point other kills may have freed them. This crashed
    in real play (`get_zombies_in_radius: Invalid access ... 'previously freed'`, two wizards on
    a dense cluster). Guarded now in three places: skip queued/invalid on grid rebuild, and
-   `is_instance_valid()` in both `get_zombies_in_radius()` and `fire.gd`'s damage loop. Any new
-   consumer of `zombie_grid_nodes` needs the same guard — the positions array (`zombie_grid`)
+   `is_instance_valid()` in both `get_enemies_in_radius()` and `fire.gd`'s damage loop. Any new
+   consumer of `enemy_grid_nodes` needs the same guard — the positions array (`enemy_grid`)
    is safe, only the node-reference one is hazardous.
 2. Flow field charges `cost + 1` for diagonals → Chebyshev distances, so diagonal routes are
    under-priced and paths skew.
@@ -535,8 +638,13 @@ Still open, roughly by value:
 6. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
 7. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
    `archer_tower.gd` repositions the archer after `add_child`. Harmless, cosmetic.
+8b. **Rain of Arrows reuses the archer's `arrow.png`** rather than owning a copy — a **deliberate
+   exception to colocation**, on the grounds that these are the same object: replacing the
+   archer's arrow should re-skin the barrage too, and two copies would let them silently diverge.
+   Its ground-zone rectangle is still the shared `1_pixel.png`. If the artist wants them to differ,
+   drop an `arrow.png` into `entities/abilities/rain_of_arrows/` and repoint the `preload`.
 8. **The boulder has no PNG of its own.** It uses the shared `assets/1_pixel.png` with a brown
-   modulate, the same placeholder pattern `zombie.tscn` uses. The folder exists, so the artist
+   modulate, the same placeholder pattern `goblin.tscn` uses. The folder exists, so the artist
    brief ("replace the PNG in each entity folder") just needs a `boulder.png` dropped in.
 
 **Fixed in the `dd49e82` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
@@ -601,7 +709,39 @@ Three things A1 taught that generalise:
    working with round-end completely untested.
 
 **A2 — enemy variety.** 🚧 In progress; see [a2_plan.md](a2_plan.md) for the work order and
-step-by-step state. Step 0 (harden the enemy contract) is shipped and verified.
+step-by-step state. **Shipped: R-0 (contract hardening), R-1 + R-2 (both renames), M-0 (bench
+harness), E-1 (enemy registry), E-2 (life cost), E-3 (wave composition), E-4 (skeleton), E-5
+(ogre), A-1 (Rain of Arrows).** Remaining: A-2 Divine Smite, A-3 Dragon Fire, and the tuning/docs
+pass.
+
+**Two defects found while verifying E-5, both in `_build_waves()`, both fixed** — and both worth
+the class of mistake rather than the fix:
+
+- **Scaled wave totals drifted +1** on waves 3 and 5, because each group was rounded
+  independently so the errors accumulated instead of cancelling. It only appeared once E-5 added a
+  **third** group — with two, they happened to cancel. Fixed with largest-remainder apportionment;
+  totals are again exactly the authored curve × scale (32/48/72/104/152, 408 spawned).
+- **`SKELETON_PACK` was inert.** `_build_waves()` dropped the `pack` key, and `_build_spawn_plan()`
+  reads `pack` off the groups *that function produces* — so every pack silently degraded to 1 and
+  skeletons had never once arrived as a squad, in any round played or measured. **E-4's acceptance
+  criterion was that wave totals stay on the authored curve, and this bug does not affect totals
+  at all.** An acceptance check that only reads the aggregate cannot see a defect in the
+  *arrangement*. Fixing it is a real difficulty change: the same round now loses 12/20 lives
+  instead of 14/20.
+
+Three more lessons from A2's enemy track:
+
+4. **A refactor's acceptance criterion should be a number, not a vibe.** E-1, E-2 and E-3 were
+   each verified by "a full round is numerically identical: 816 silver = 408 kills, won, 20/20".
+   That one figure caught nothing — which is exactly the point. It made "I didn't break anything"
+   checkable rather than asserted.
+5. **Keep a content change from becoming a difficulty change.** Skeletons and ogres *replace*
+   goblins rather than adding to them, so every wave total stays on the authored curve
+   (20/30/45/65/95). A2 could then still be compared against A1's tuning instead of needing a
+   fresh baseline.
+6. **The scene-data trap closed itself.** R-0 moved group membership from `.tscn` into
+   `Enemy._ready()`. Two commits later, skeleton and ogre scenes were created — and neither
+   *could* forget the group. That is the difference between a rule and a guarantee.
 
 A fourth lesson, from A2's R-0, which generalises past this project: **verify the safety net by
 breaking it.** The contract guards were only trusted after a member was deliberately misspelled
@@ -655,6 +795,19 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 - **A new `class_name` is invisible until the editor rescans.** `script_check` reports
   `Identifier 'Enemy' not declared` on every consumer until you call `editor_refresh`. Not a code
   error — a stale filesystem cache.
+- **The bench harness measures the game for you: `/root/map1/Bench`.** `call("run", 600, "packed")`
+  then read `result_line` via `runtime_get_script_vars`. Headline stat is **`us_per_enemy`**;
+  `16600 / us_per_enemy` is the enemy ceiling at 60Hz. `frame_ms` is vsync-quantised and
+  secondary — `phys_ms` and `us_per_enemy` come from `Performance.TIME_PHYSICS_PROCESS` and are
+  not. Configs: `loose` (45px, fits only ~195 on level_01) and `packed` (20px, fits ~955).
+  `Enemy.bench_variant` drives the V0–V5 ablation ladder; **`reset()` it or the horde stays
+  crippled.** A run is ~4s at 60 FPS but ~45s in the 7 FPS regime, since sampling is
+  frame-bounded.
+- **A benchmark's lattice must sit on the flow field, not merely off walls.** The first version
+  seeded at StartPoint and filtered on `not is_wall()`, which put ~350 of 600 enemies off-map
+  where `get_flow_direction()` returns zero — and those take a *more expensive* branch every
+  frame. It measured the wrong code path and failed its own self-test. Filter on
+  `flow_field.has(cell)`.
 - **A ~5s round trip is longer than a 12s breather feels.** Three consecutive polls showing an
   unchanged wave and an empty board is usually a breather, not a stall. Read `phase` before
   concluding anything is stuck.
@@ -668,18 +821,32 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 - **`set_anchors_preset()` alone leaves a procedurally created Control at size (0,0)** — children
   anchored to it then centre on an empty rect and land off-screen. Set `anchor_*` **and**
   `offset_*` explicitly. Cost an hour on the ability bar.
+- **Abilities are inert outside `IN_ROUND` — by design, and it will look like a bug.**
+  `level_controller._unhandled_input()` returns early unless the round is running, so a number key
+  in PRE_ROUND selects nothing and a click aims nothing. Verify ability input *inside* a round, or
+  you will chase a routing bug that does not exist.
+- **An effect shorter than an MCP round trip cannot be screenshotted live.** A 3s barrage is
+  reliably over before the next call lands. Two techniques that work: `get_tree().set("paused",
+  true)` **in the same expression** that casts, which freezes a real frame at spawn; or verify
+  programmatically instead (child counts, `global_rotation`, resulting HP) and treat the picture
+  as illustration. Do not pose a frame by hand and present it as caught live.
+- **Cosmetic randomness is fine; damage randomness is not.** Rain of Arrows scatters its arrow
+  sprites with `randf()`, but damage is a deterministic box test — so no measurement in this
+  project depends on an RNG. Keep that line: a payload whose *footprint* varied per cast would
+  make every acceptance figure unreproducible, which is the same argument `_build_spawn_plan()`
+  makes for a deterministic interleave over a shuffle.
 - **MCP round trips are ~5 seconds.** Anything shorter-lived than that cannot be observed by
   polling — a 3s cooldown always reads as 0 by the next call. Two techniques that work:
   `get_tree().set("paused", true)` to freeze mid-animation for a screenshot, and holding a round
   open indefinitely by giving the wave manager nothing to resolve.
 - **To hold a round open for inspection:** with no enemies alive, `_check_round_complete()` never
-  fires, so the round sits in `IN_ROUND` forever. `get_tree().set_group("zombie", "speed", 0.0)`
+  fires, so the round sits in `IN_ROUND` forever. `get_tree().set_group("enemy", "speed", 0.0)`
   freezes the horde in place — but it freezes them *where they currently are*, not at the spawn
-  point, so sample a live zombie's position rather than assuming where the cluster is.
+  point, so sample a live enemy's position rather than assuming where the cluster is.
 - The main scene is `levels/level_01.tscn` (`uid://c4tocub30g0w`). `testbed/clean_area.tscn` is a stripped-down
   test harness that implements the same `get_flow_direction` / `is_wall` contract — if you
   change that contract, update it too, or its enemies break.
-- `zombie.gd` reaches its map via `get_parent()` and reads `map.end_point` directly. Enemies
+- `enemy.gd` reaches its map via `get_parent()` and reads `map.end_point` directly. Enemies
   must stay direct children of the map node.
 - Spawning is triggered by a `StartButton`, not automatically. `_on_start_button_pressed`
   hides it and calls `_start_round()`; `start_new_round()` (Play Again) shows it again — a

@@ -23,6 +23,7 @@ signal all_waves_complete
 const ENEMY_SCENES := {
 	"goblin": preload("res://entities/enemies/goblin/goblin.tscn"),
 	"skeleton": preload("res://entities/enemies/skeleton/skeleton.tscn"),
+	"ogre": preload("res://entities/enemies/ogre/ogre.tscn"),
 }
 
 ## Skeletons arrive as a squad rather than a trickle. With spawn intervals of
@@ -51,16 +52,19 @@ const WAVE_TABLE := [
 		{"type": "skeleton", "count": 4, "pack": SKELETON_PACK},
 	], "spawn_interval": 0.12},
 	{"groups": [
-		{"type": "goblin", "count": 37},
+		{"type": "goblin", "count": 36},
 		{"type": "skeleton", "count": 8, "pack": SKELETON_PACK},
+		{"type": "ogre", "count": 1},
 	], "spawn_interval": 0.09},
 	{"groups": [
-		{"type": "goblin", "count": 53},
+		{"type": "goblin", "count": 51},
 		{"type": "skeleton", "count": 12, "pack": SKELETON_PACK},
+		{"type": "ogre", "count": 2},
 	], "spawn_interval": 0.06},
 	{"groups": [
-		{"type": "goblin", "count": 79},
+		{"type": "goblin", "count": 76},
 		{"type": "skeleton", "count": 16, "pack": SKELETON_PACK},
+		{"type": "ogre", "count": 3},
 	], "spawn_interval": 0.04},
 ]
 
@@ -160,18 +164,10 @@ func _build_waves() -> Array:
 
 	for i in range(rows):
 		var row: Dictionary = WAVE_TABLE[i]
-		var groups: Array = []
+		var groups: Array = _scale_groups(row["groups"])
 		var total := 0
-
-		for authored in row["groups"]:
-			# maxi(1, ...) is applied PER GROUP, deliberately: it means a
-			# one-ogre group can never be scaled out of existence by a low
-			# difficulty_scale. That is almost certainly what you want for "a
-			# heavy that must not be allowed through" — but it is a decision,
-			# not an accident inherited from the old single-count line.
-			var scaled: int = maxi(1, int(round(authored["count"] * map.difficulty_scale)))
-			groups.append({"type": authored["type"], "count": scaled})
-			total += scaled
+		for g in groups:
+			total += g["count"]
 
 		result.append({
 			"groups": groups,
@@ -181,6 +177,75 @@ func _build_waves() -> Array:
 			"spawn_interval": maxf(row["spawn_interval"], MIN_SPAWN_INTERVAL),
 		})
 	return result
+
+
+## Scales one wave's groups by difficulty_scale so the group counts SUM to the
+## scaled wave total, instead of each group rounding on its own.
+##
+## Independent per-group rounding lets the errors accumulate rather than cancel.
+## At scale 1.6 wave 5's 76/16/3 rounds to 122/26/5 = 153, while the wave's
+## authored total of 95 scales to 152. That +1 is tiny, but it breaks A2's rule
+## that a composition change must not move the difficulty curve — and it only
+## appeared once E-5 added a third group, because with two groups the errors
+## happened to cancel. A drift that shows up when you add content is exactly the
+## kind that gets blamed on the content.
+##
+## Largest-remainder apportionment: floor every group, then hand the leftover
+## units to whichever groups were rounded down hardest. Deliberately the same
+## rule _build_spawn_plan() uses to interleave types, applied here to counts.
+##
+## maxi(1, ...) still applies PER GROUP: a one-ogre group can never be scaled
+## out of existence by a low difficulty_scale. When those floors push the sum
+## past the target the floors win and the wave runs slightly large — losing the
+## heavy entirely is the worse failure.
+func _scale_groups(authored_groups: Array) -> Array:
+	var authored_total := 0
+	for authored in authored_groups:
+		authored_total += authored["count"]
+	var target: int = maxi(1, int(round(authored_total * map.difficulty_scale)))
+
+	var counts: Array = []
+	var remainders: Array = []
+	var running := 0
+
+	for authored in authored_groups:
+		var exact: float = authored["count"] * map.difficulty_scale
+		var floored: int = maxi(1, int(floor(exact)))
+		counts.append(floored)
+		remainders.append(exact - floor(exact))
+		running += floored
+
+	# Flooring drops strictly less than one unit per group, so at most one extra
+	# unit per group is ever owed — a single pass reaches the target. Each unit
+	# goes to the largest unspent remainder, and spent groups are marked -1.0 so
+	# they cannot win twice; that also guarantees this loop terminates.
+	while running < target:
+		var best := -1
+		var best_remainder := -1.0
+		for gi in range(counts.size()):
+			if remainders[gi] > best_remainder:
+				best_remainder = remainders[gi]
+				best = gi
+		if best < 0:
+			break
+		counts[best] += 1
+		remainders[best] = -1.0
+		running += 1
+
+	var scaled: Array = []
+	for gi in range(authored_groups.size()):
+		var authored: Dictionary = authored_groups[gi]
+		var g: Dictionary = {"type": authored["type"], "count": counts[gi]}
+		# Carry `pack` through. Omitting it here is what made E-4's SKELETON_PACK
+		# inert: _build_spawn_plan() reads pack off the groups THIS function
+		# produces, not off WAVE_TABLE, so a dropped key silently degraded every
+		# pack to 1 and skeletons trickled in singly instead of arriving as a
+		# squad. Nothing errored and every wave total stayed correct, which is
+		# why E-4's totals-based acceptance check could not see it.
+		if authored.has("pack"):
+			g["pack"] = authored["pack"]
+		scaled.append(g)
+	return scaled
 
 
 ## Flattens a wave's groups into one type-id per spawn, in the order they will

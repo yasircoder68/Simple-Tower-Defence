@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://cgemdg6lfaxr7"]
+
+[ext_resource type="Script" uid="uid://e3irsdwgnfsk" path="res://entities/abilities/rain_of_arrows/rain_of_arrows.gd" id="1_6it38"]
+[ext_resource type="Texture2D" uid="uid://c5b6alif1chmk" path="res://assets/1_pixel.png" id="2_mlubx"]
+
+[node name="RainOfArrows" type="Node2D" unique_id=1891808259]
+z_index = 5
+script = ExtResource("1_6it38")
+
+[node name="Zone" type="Sprite2D" parent="." unique_id=320113615]
+modulate = Color(0.95, 0.8, 0.35, 0.18)
+texture = ExtResource("2_mlubx")

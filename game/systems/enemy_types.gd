@@ -57,6 +57,28 @@ const TYPES := {
 		"speed": 280.0,
 		"ignore_separation": true,
 	},
+
+	## The heavy that must not be allowed through.
+	##
+	## 80 HP is eight archer shots at base damage 10, which is what finally makes
+	## the archer's DAMAGE upgrade track do something — see CLAUDE.md Known
+	## issue 1. Against a 10 HP goblin, +2 damage changes nothing; against an
+	## ogre it removes a whole shot.
+	##
+	## separation_weight 0.15 means the crowd barely shifts it, while it still
+	## pushes others normally (it contributes its position to the grid like
+	## anything else). That asymmetry is what lets it plough a lane through the
+	## goblins — and it costs one float multiply, with no change to the spatial
+	## grid at all.
+	##
+	## life_cost 3 is the whole point of E-2's channel. Three leaked ogres is
+	## nine of twenty lives.
+	"ogre": {
+		"max_hp": 80,
+		"silver_reward": 12,
+		"life_cost": 3,
+		"separation_weight": 0.15,
+	},
 }
 
 

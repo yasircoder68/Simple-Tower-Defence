@@ -29,6 +29,24 @@ const ABILITIES := {
 		"scene": preload("res://entities/abilities/boulder/boulder.tscn"),
 		"script": preload("res://entities/abilities/boulder/boulder.gd"),
 	},
+
+	## A2's A-1, and the test of B-4's promise: adding this ability was THIS
+	## ENTRY and a payload folder, with no other change to this file. The bar
+	## builds its slot, KEY_2 selects it, and the aim marker sizes itself — all
+	## by iterating ABILITIES. Boulder stays first, so it stays the default
+	## selection via first_ability().
+	"rain_of_arrows": {
+		"display_name": "Rain of Arrows",
+		"key": KEY_2,
+		"key_label": "2",
+		"cooldown": 30.0,
+		## Press pins the rectangle's BASE, moving the mouse swings the far end
+		## around it, release casts. Absent means "point" — boulder never had to
+		## learn this existed.
+		"aim_mode": "directional",
+		"scene": preload("res://entities/abilities/rain_of_arrows/rain_of_arrows.tscn"),
+		"script": preload("res://entities/abilities/rain_of_arrows/rain_of_arrows.gd"),
+	},
 }
 
 const AIM_MARKER_SCRIPT := preload("res://ui/aim_marker/aim_marker.gd")
@@ -52,6 +70,15 @@ var selected_ability: String = ""
 ## gated by can_cast(), not by this.
 var aiming: bool = false
 
+## Where a directional aim was anchored — the point the player pressed, which
+## becomes the BASE of the payload. Unused by point-aimed abilities, which
+## simply follow the cursor.
+var aim_origin: Vector2 = Vector2.ZERO
+## Live aim direction for directional abilities. Seeded to +X so the very first
+## frame of an aim, before the cursor has moved off the press point, still has a
+## real angle to draw rather than a degenerate zero vector.
+var aim_direction: Vector2 = Vector2.RIGHT
+
 var _marker: Node2D = null
 var _bar: Control = null
 
@@ -67,7 +94,7 @@ func setup(map_ref: Node2D) -> void:
 	_marker.name = "AimMarker"
 	_marker.hide()
 	map.add_child(_marker)
-	_marker.set_radius(get_radius(selected_ability))
+	_marker.set_aim(get_aim_shape(selected_ability))
 
 	# The bar is HUD, so it needs the CanvasLayer. Guarded rather than assumed:
 	# testbed/clean_area.tscn has no CanvasLayer, and the same has_method-style
@@ -134,13 +161,60 @@ func get_cooldown(ability_id: String) -> float:
 	return cooldowns.get(ability_id, 0.0)
 
 
-## Blast radius of the payload itself. Read off the payload script so the aim
-## preview and the real damage can never disagree.
-func get_radius(ability_id: String) -> float:
+## Geometry of the payload itself, read off the payload script so the aim
+## preview and the real damage can never disagree — the same rule the radius
+## alone followed before rectangles existed.
+##
+## Read through get_script_constant_map() rather than `payload.SHAPE`, because
+## SHAPE is OPTIONAL: a payload that never heard of it is a circle, and direct
+## access to a missing constant is an error rather than a default. boulder.gd
+## declares only RADIUS and is untouched by any of this.
+func get_aim_shape(ability_id: String) -> Dictionary:
 	if not ABILITIES.has(ability_id):
-		return 0.0
-	var payload: GDScript = ABILITIES[ability_id]["script"]
-	return payload.RADIUS
+		return {"shape": "circle", "radius": 0.0}
+
+	var consts: Dictionary = ABILITIES[ability_id]["script"].get_script_constant_map()
+	var shape: String = consts.get("SHAPE", "circle")
+	if shape == "rect":
+		return {
+			"shape": "rect",
+			"width": float(consts.get("WIDTH", 0.0)),
+			"length": float(consts.get("LENGTH", 0.0)),
+		}
+	return {"shape": "circle", "radius": float(consts.get("RADIUS", 0.0))}
+
+
+## "point" (default) follows the cursor and casts where it sits. "directional"
+## anchors on the press point and reads a direction from the cursor, which is
+## what lets a rectangle be swung around its base.
+func get_aim_mode(ability_id: String) -> String:
+	if not ABILITIES.has(ability_id):
+		return "point"
+	return ABILITIES[ability_id].get("aim_mode", "point")
+
+
+## Points the marker per the selected ability's aim mode. Shared by the press
+## and motion branches so the preview cannot be aimed one way on press and
+## another way on the first mouse move.
+func _update_aim(cursor: Vector2) -> void:
+	if _marker == null:
+		return
+
+	if get_aim_mode(selected_ability) != "directional":
+		_marker.global_position = cursor
+		_marker.rotation = 0.0
+		return
+
+	# The press point is the BASE and stays put; the cursor is the far end, so
+	# moving it ROTATES the rectangle about the base rather than sliding it.
+	var offset: Vector2 = cursor - aim_origin
+	# A cursor sitting on the base has no direction to read. Keep the previous
+	# one rather than snapping the preview to an arbitrary axis mid-aim, which
+	# would make the rectangle flick as the player crosses back over the anchor.
+	if offset.length_squared() > 1.0:
+		aim_direction = offset.normalized()
+	_marker.global_position = aim_origin
+	_marker.rotation = aim_direction.angle()
 
 
 # --- Selection ----------------------------------------------------------
@@ -155,7 +229,7 @@ func select(ability_id: String) -> bool:
 		return true
 	selected_ability = ability_id
 	if _marker != null:
-		_marker.set_radius(get_radius(ability_id))
+		_marker.set_aim(get_aim_shape(ability_id))
 	selection_changed.emit(ability_id)
 	return true
 
@@ -205,7 +279,7 @@ func can_cast(ability_id: String) -> bool:
 ## get_global_mouse_position() is not reliably driven by input_simulate in this
 ## environment (CLAUDE.md, Gotchas) — calling this directly via execute_code is
 ## the only way this path can be verified.
-func cast(ability_id: String, world_pos: Vector2) -> bool:
+func cast(ability_id: String, world_pos: Vector2, aim_dir: Vector2 = Vector2.RIGHT) -> bool:
 	if not can_cast(ability_id):
 		return false
 
@@ -218,6 +292,13 @@ func cast(ability_id: String, world_pos: Vector2) -> bool:
 	# to resolve against.
 	map.add_child(payload)
 	payload.global_position = world_pos
+	# Rotation is assigned HERE, next to global_position and for exactly the same
+	# reason: add_child() has already run the payload's _ready(), so a payload
+	# that read its own transform there would see the origin and a zero angle.
+	# Directional payloads must read theirs later — rain_of_arrows does it per
+	# tick, boulder reads global_position at impact.
+	if get_aim_mode(ability_id) == "directional":
+		payload.global_rotation = aim_dir.angle()
 
 	# The cooldown starts at cast, not at impact — the arc is travel time the
 	# player has already committed to.
@@ -227,8 +308,8 @@ func cast(ability_id: String, world_pos: Vector2) -> bool:
 	return true
 
 
-func cast_selected(world_pos: Vector2) -> bool:
-	return cast(selected_ability, world_pos)
+func cast_selected(world_pos: Vector2, aim_dir: Vector2 = Vector2.RIGHT) -> bool:
+	return cast(selected_ability, world_pos, aim_dir)
 
 
 ## Hold LMB to aim, release to drop; right-click cancels; number keys select.
@@ -250,7 +331,7 @@ func handle_input(event: InputEvent) -> void:
 
 	if event is InputEventMouseMotion:
 		if aiming:
-			_marker.global_position = map.get_global_mouse_position()
+			_update_aim(map.get_global_mouse_position())
 		return
 
 	if not (event is InputEventMouseButton):
@@ -265,17 +346,23 @@ func handle_input(event: InputEvent) -> void:
 
 	if event.pressed:
 		aiming = true
-		_marker.global_position = map.get_global_mouse_position()
-		_marker.set_radius(get_radius(selected_ability))
+		# Anchored on the PRESS point. For a directional ability this is the
+		# rectangle's base and does not move again for the rest of the aim; for a
+		# point ability _update_aim() ignores it and follows the cursor instead.
+		aim_origin = map.get_global_mouse_position()
+		_marker.set_aim(get_aim_shape(selected_ability))
+		_update_aim(aim_origin)
 		_marker.set_ready(can_cast(selected_ability))
 		_marker.show()
 	elif aiming:
 		# Read the position off the marker rather than the mouse again: the
 		# marker is what the player was looking at, so a release arriving a
-		# frame after the last motion still throws where they aimed.
+		# frame after the last motion still throws where they aimed. Same for the
+		# direction — aim_direction is what the preview was drawn with.
 		var target: Vector2 = _marker.global_position
+		var direction: Vector2 = aim_direction
 		cancel_aim()
-		cast_selected(target)
+		cast_selected(target, direction)
 
 
 func _try_select_by_key(keycode: int) -> void:
