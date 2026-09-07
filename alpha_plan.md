@@ -42,7 +42,7 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 |---|---|---|---|
 | **A1** | "it's a game now" — waves + the boulder | 6% | ✅ built, exported, **not shipped** |
 | **A2** | enemy variety + Rain of Arrows | ~5.5% | ✅ **built, verified, complete** |
-| **A3** | big battles — the horde engine | 12% | planned ([a3_plan.md](a3_plan.md)) |
+| ~~**A3**~~ | ~~big battles — the horde engine~~ | ~2% spent | **MOVED TO [beta_plan.md](beta_plan.md)** 2026-09-07. D-1 shipped (−40.7%); the rest is beta work |
 | **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | sketch below; **unblocks shipping** |
 | **A5** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
 | **A6** | a campaign shape — level select, more levels | ~4% | sketch |
@@ -50,6 +50,11 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 
 Adding A4 as its own stage pushed alpha's share of remaining work from 40% to roughly 43%. The
 shares are estimates and A5 absorbed a reduction, since some of its interface cost moved into A4.
+
+**Moving A3's horde engine to beta (2026-09-07) took ~10% back out**, leaving alpha at roughly
+**33%** and beta at roughly **50%**. A3 had already spent ~2% on D-1, which shipped and stays.
+**A4 is now the next stage**, which is the whole point of the move — it is the only thing between
+this project and an itch release.
 
 **Moving A-2 Divine Smite and A-3 Dragon Fire from A2 to A5** (2026-09-06) shifted roughly 2.5%
 between those two stages; the alpha total is unchanged. Both are cheaper than originally scoped
@@ -135,48 +140,66 @@ wave totals drifted +1 once a third enemy group existed, and `SKELETON_PACK` was
 `pack` key was dropped, so skeletons had never once arrived as a squad in any round played or
 measured. E-4's acceptance check only read wave totals, which that bug does not affect.
 
-### A3 — big battles · 12%
+### A3 — big battles · ~2% spent · **MOVED TO BETA (2026-09-07)**
 
-The horde engine rewrite: from a few hundred enemies to genuinely overwhelming numbers.
+**The horde engine is no longer an alpha stage.** What remains of it lives in
+[beta_plan.md](beta_plan.md) under *The horde engine*. This entry is kept because A3 did ship
+something, and because dissolving the stage left two dependencies that had to be rehomed — see
+below, they are the part that bites.
 
-This is the largest single item in the entire roadmap and the biggest technical unknown in the
-project. It is also the best update headline alpha has — "the hordes got massive" is something
-players notice immediately.
+**Why it moved.** Not because it failed — because it was invisible:
 
-**Bundle the TileMapLayer migration into this.** Godot deprecated `TileMap` in 4.3 and the
-project is on 4.6. It still works, so it isn't urgent on its own — but the rewrite touches the
-same pathfinding code (cell lookups, coordinate conversion, used-rect), and doing them
-separately destabilises that code twice. Decided deliberately: don't migrate before this point,
-and don't leave it past the first batch of new levels.
+> Waves top out at **152 concurrent enemies**, and the game already ran those at 60 FPS *before*
+> any of A3's optimisation. Every hour spent on the enemy ceiling changed nothing a player could
+> see, while the thing actually blocking an itch release — no main menu, no pause, a debug
+> upgrade panel — sat untouched. **A4 was always the real blocker.**
 
-**Full work order: [a3_plan.md](a3_plan.md).** Target **1500 concurrent enemies at p95 < 16.6 ms**,
-~6× today's ceiling, with de-nodify and MultiMesh in scope from the start.
+The ceiling is headroom for a horde that has not been designed yet. That makes it beta work, where
+"the screen fills with enemies" is a store-page screenshot rather than an invisible refactor.
 
-**Two things to hold onto:**
+**What A3 shipped before it was parked** (~2% of the roadmap, and it stays shipped):
 
-- **Timebox it, and keep the current engine as a fallback.** If the rewrite proves too
-  expensive, the game degrades to smaller battles rather than stalling. That fallback is what
-  keeps this from being a project-killing bet. *(a3_plan sharpens this: because every rung is
-  independently committed and measured, the fallback is simply "stop climbing" — there is no
-  second engine to maintain and nothing to abandon.)*
-- **It gets more expensive the longer it waits.** Every tower and enemy built beforehand is more
-  to carry across. That is the argument for doing it at A3 rather than at the end of the run —
-  early enough to limit the porting cost, late enough that a public build exists first.
+- **D-1 — density-gradient separation** (`4901672`). The pairwise 3x3 neighbour scan deleted;
+  enemies now deposit mass into a density field and read its gradient. **−40.7% `us_per_enemy`**
+  at 600 packed, verified with two full rounds before and after that produced the same two
+  outcomes in the opposite order. The ceiling went from ~250 to ~420.
+- **A bench that does not lie.** `systems/bench.gd` had a real measurement bug —
+  `TIME_PHYSICS_PROCESS` lags, and sampling it per frame carried the previous run's value into the
+  next run's results. Found and fixed (`BENCH_TAG "M-0b"`). That bug had already produced one
+  entirely fictional finding ("the harness degrades +45% within a process").
+- **Three hypotheses killed by measurement rather than argument:** dictionary hashing (P-2, −3.9%,
+  noise), the physics broadphase (S-1, `phys_pairs` 180 → 0, no change at all), and the manager
+  loop (bounded at ~10% before it was built).
 
-**Two findings from planning that change the shape of this stage:**
+**What moved to beta:** D-1b (density-damped speed), D-2 (Continuum Crowds proper), X-\*
+(de-nodify + MultiMesh), and the refuted micro-optimisation ladder as a record.
 
-- **The diagnosis in CLAUDE.md was wrong.** "Move the horde into a single manager loop" removes
-  one Callable dispatch out of ~25 keyed Dictionary operations per enemy per frame. The cost is
-  hashing and `Vector2i` construction. Following it as written would have produced a sixth
-  consecutive "no change" result.
-- **Measurement comes first, and it is not optional.** Six optimisations have been attempted here;
-  five produced "no change", and the only number ever obtained came from deleting the feature. A3
-  opens by building a self-measuring bench harness — *which lands during A2*, so it is validated on
-  real work before A3 depends on it.
+---
 
-**A3 ends with overlapping waves.** A bigger sequential wave is the same fight bigger; overlap is
-what actually makes it *overwhelming*, and [a1_plan.md](a1_plan.md) deferred it to exactly this
-point. That, not the engine, is the shippable headline.
+#### The two things dissolving A3 broke, and where they went
+
+**1. The TileMapLayer migration (T-1) lost its home — it is now A6's problem.**
+
+CLAUDE.md Known issue 5 says to bundle it with the horde rewrite **or** do it immediately before
+building levels 2–15, *whichever comes first*. With the horde rewrite in beta, **A6 comes first**,
+so A6 now owns it. A6 already said it was "blocked on A3's TileMapLayer migration"; that sentence
+would have pointed at a stage that no longer exists.
+
+This is the kind of thing that silently falls through a crack during a re-plan, so it is written
+down in three places: here, in A6 below, and in Known issue 5.
+
+**2. Overlapping waves no longer needs the horde engine — D-1 bought the headroom.**
+
+[a1_plan.md](a1_plan.md) deferred overlapping waves to A3 on the grounds that overlap raises the
+concurrent enemy count, and the engine could not take it. Two waves of 152 is ~300 concurrent,
+against a pre-D-1 ceiling of ~250 — genuinely blocked. **Post-D-1 the ceiling is ~420, so modest
+overlap fits today.**
+
+It is a gameplay feature, not a performance one, and it is the better update headline of the two
+("a bigger sequential wave is the same fight bigger; overlap is what makes it *overwhelming*").
+**Folded into A5.** The deferred cost is unchanged and still real: overlap needs a wave tag on
+every enemy and per-wave decrements, because today a dying enemy unambiguously belongs to the
+current wave and one counter suffices.
 
 ### A4 — MVP UI · ~6% · **the stage that unblocks shipping**
 
@@ -237,6 +260,12 @@ silver and gold only. Fix when A4 is planned.*
 - **Gold finally does something.** Today gold is earned once per level and can be spent on
   nothing at all — half the economy is inert. Gold buys tower unlocks and extra placement slots.
 - More placement slots, so the four-tower cap becomes a choice rather than a wall.
+- **Overlapping waves, inherited from the dissolved A3.** Deferred by a1_plan on the grounds that
+  overlap needs an engine that can hold ~300 concurrent enemies; **D-1 raised the ceiling from
+  ~250 to ~420, so it fits now.** It is a gameplay feature and the better headline of the two —
+  a bigger sequential wave is the same fight bigger, overlap is what makes it *overwhelming*.
+  The deferred cost is unchanged: it needs a wave tag on every enemy and per-wave decrements,
+  because today a dying enemy unambiguously belongs to the current wave and one counter suffices.
 
 **This is smaller than it looks.** `PlayerData` already has `spend_gold()`, `unlocked_towers`,
 `is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A5 is wiring a UI
@@ -263,8 +292,15 @@ raising enemy HP is a binary cliff (archer damage is exactly 10, so any HP above
 shots needed and swings a comfortable win into a wave-4 loss), while volume scales smoothly. Level
 geometry is the real knob.
 
-**Blocked on A3's TileMapLayer migration** — don't author fifteen levels against a deprecated API
-(CLAUDE.md Known issue 5).
+**A6 NOW OWNS THE TileMapLayer MIGRATION (T-1).** It used to be bundled into A3's horde rewrite,
+but A3 moved to beta on 2026-09-07 — and Known issue 5's rule is "bundle it with the horde rewrite
+**or** do it immediately before building levels 2–15, whichever comes first." With the rewrite in
+beta, **this stage comes first, so the migration lands here.** Don't author fifteen levels against
+a deprecated API and then migrate underneath them.
+
+Note the `0` in `get_used_cells(0)` is a layer index that ceases to exist under `TileMapLayer`,
+where the node *is* the layer. The affected calls are `get_used_cells`, `local_to_map`,
+`map_to_local` and `get_used_rect`, all in `level_controller.gd`.
 
 ### Running throughout · ~2%
 

@@ -4,10 +4,17 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: A1 and A2 complete. A3 in progress — M-1, P-2, S-1 and now **D-1** are done. D-1
-replaced the pairwise separation scan with a crowd-density field: **−40.7% `us_per_enemy`** at 600
-packed, with no behavioural change. It is A3's first real performance win and the horde now moves
-as a continuum. See [a3_plan.md](a3_plan.md)'s *D-1* section.** Pathfinding, swarm AI, tower building/removal/moving,
+**Status: A1 and A2 complete. A3 PARKED and its remaining work MOVED TO BETA (2026-09-07) —
+see [beta_plan.md](beta_plan.md)'s *The horde engine*. A4 (MVP UI) is next.**
+
+A3 shipped one thing before it was parked: **D-1**, which replaced the pairwise separation scan
+with a crowd-density field — **−40.7% `us_per_enemy`** at 600 packed, ceiling ~250 -> ~420, no
+behavioural change. The horde moves as a continuum now.
+
+**Why it was parked — read this before reviving it.** Waves top out at **152 concurrent enemies**,
+which the game already ran at 60 FPS *before* any of A3's work. The enemy ceiling was invisible to
+every player, while the actual blocker on shipping sat untouched. **Performance was never what was
+stopping this game from being released.** Pathfinding, swarm AI, tower building/removal/moving,
 the silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work.
 A1 added **progressive waves** and the **boulder ability** — five escalating waves with a
 breather, and a hold-to-aim ability on a 3s cooldown that is the only live input.
@@ -38,7 +45,7 @@ no pause, and the upgrade panel is a debug readout bolted to the play screen. Th
 | Player character | **Pure tower defense.** No player unit. |
 | Meta-progression | **Yes** — permanent upgrades, `user://` save. Currencies are silver + gold; there is no "souls". |
 | In-round play | **Cooldown abilities.** Towers are pre-placed and auto-fire; abilities are the only live input. |
-| Horde movement | **Fluid, not individuals** (decided 2026-09-07) — the horde should read like water pulled through a maze. See a3_plan.md's *THE DIRECTION TO TAKE NEXT*. |
+| Horde movement | **Fluid, not individuals** (decided 2026-09-07) — the horde should read like water pulled through a maze. **Half-delivered:** D-1 made the push a continuum (no pairwise step); the *routing* half — congestion feeding back into the flow field — moved to beta with the rest of the horde engine. |
 
 **The classroom / school-horror art has been deleted** (`dd49e82`) — ~148 PNGs, 106MB, wrong
 theme. It is still in git history if ever needed. Every sprite in the running game is a
@@ -51,10 +58,17 @@ were **deleted** in the same cleanup — all verified orphans. Pure tower defens
 **In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
 rename, and Rain of Arrows. The other two abilities moved to A5; see that file for progress.
 
-**Planned next: [a3_plan.md](a3_plan.md)** — the horde engine, targeting 1500 concurrent enemies,
-bundling the TileMapLayer migration and ending with overlapping waves. **Read its opening section
-before touching the crowd code** — it overturns the diagnosis recorded under Performance
-below.
+**Planned next: A4 — MVP UI**, per [alpha_plan.md](alpha_plan.md). Main menu, pause, and a real
+upgrade screen. It is the only thing between this project and an itch release.
+
+**[a3_plan.md](a3_plan.md) is PARKED and is now a record, not a work order** — the horde engine
+moved to [beta_plan.md](beta_plan.md) on 2026-09-07. **Read a3_plan's opening section before
+touching the crowd code anyway:** it holds D-1's full measurement record and four dead ends that
+were each bought expensively, and it overturns the diagnosis recorded under Performance below.
+
+Dissolving A3 orphaned two items, both rehomed: the **TileMapLayer migration is now A6's** (see
+Known issue 5) and **overlapping waves is now A5's** (D-1's headroom means it no longer needs the
+horde rewrite).
 
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
 [final_plan.md](final_plan.md)** — three release stages, 40/40/20 of remaining work. See Build
@@ -564,7 +578,19 @@ auto-generated names like `@Button@42`, gettable at runtime via
 
 ---
 
-## Performance: the open problem
+## Performance — NOT the open problem, and not alpha's problem
+
+> [!IMPORTANT]
+> **Parked 2026-09-07. The remaining horde work moved to [beta_plan.md](beta_plan.md).**
+>
+> This section is long, detailed, and easy to mistake for a call to action. It is not one.
+> **Waves top out at 152 concurrent enemies and the ceiling is ~420** — the game has roughly 2.7x
+> the headroom it uses. Everything below is about a horde that has not been designed yet.
+>
+> **The genuinely load-bearing parts are the RULES, not the targets:** the density-field rules
+> under Architecture, the "ruled out" list (each item was bought expensively), and the measurement
+> protocol at the bottom. Read those before touching the crowd code. Ignore the 1500-enemy target
+> until beta.
 
 Measured on this machine, `level_01`, enemies spawned instantly:
 
@@ -804,10 +830,14 @@ Still open, roughly by value:
    visually overlap.
 5. `TileMap` is deprecated as of Godot 4.3 (project targets 4.6). **Migration is deliberately
    deferred — do not "helpfully" do it.** Deprecated is not removed; it works fine in 4.6. The
-   horde engine rewrite in alpha tears through the same pathfinding code (`get_used_cells(0)`,
-   `local_to_map`, `map_to_local`, `get_used_rect`), so migrating separately destabilises that
-   code twice. **Bundle it with the horde rewrite, or do it immediately before building levels
-   2–15 — whichever comes first.** Note the `0` in `get_used_cells(0)` is a layer index that
+   rule has always been: **bundle it with the horde rewrite, or do it immediately before building
+   levels 2–15 — whichever comes first.**
+   **As of 2026-09-07 that resolves to A6, and A6 owns it.** The horde rewrite moved to beta, so
+   the levels come first. This was an orphan created by dissolving A3 and is deliberately recorded
+   in three places (here, alpha_plan's A3 and A6 entries) because it is exactly the kind of
+   dependency a re-plan drops silently.
+   Affected calls, all in `level_controller.gd`: `get_used_cells(0)`, `local_to_map`,
+   `map_to_local`, `get_used_rect`. Note the `0` in `get_used_cells(0)` is a layer index that
    ceases to exist under `TileMapLayer`, where the node *is* the layer.
 6. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
 7. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
@@ -843,10 +873,15 @@ Two things that fall out of that and catch people:
 - **Alpha is a series of releases, not a gate.** Ship early and repeatedly; the first public
   build only needs progressive waves and the cooldown abilities on top of what already exists.
 
-The **horde engine rewrite** (massive battles, replacing the ~250-enemy ceiling documented under
-Performance) lands mid-alpha. It is the largest single item in the roadmap and the biggest
-technical unknown — timebox it and keep the current GDScript horde as a fallback, so worst case
-the game has smaller battles rather than no schedule.
+The **horde engine rewrite** (massive battles) was scheduled mid-alpha as A3. **It moved to beta
+on 2026-09-07**, after D-1 raised the ceiling from ~250 to ~420 and made it obvious the ceiling
+was never what blocked shipping. It is still the largest single item in the roadmap and the
+biggest technical unknown — timebox it and keep the current GDScript horde as a fallback, so worst
+case the game has smaller battles rather than no schedule.
+
+**One hard ordering constraint the move created:** `X-*` (de-nodify + MultiMesh) changes how enemy
+*art is drawn*, so it must land **before** beta's full art integration or the enemy half of that
+integration gets done twice. See beta_plan.md.
 
 ### Pre-alpha — complete
 
@@ -882,18 +917,25 @@ Three things A1 taught that generalise:
    `_check_round_complete()` that real resolutions trigger. It would have reported five waves
    working with round-end completely untested.
 
-**A3 — big battles.** 🚧 In progress. **D-1 (density-gradient separation) shipped 2026-09-07 and
-is the stage's first measured win: −40.7% `us_per_enemy` at 600 packed, −17.6% at loose, with two
-before/after rounds producing the same two outcomes in the opposite order.** The horde is now a
-continuum — enemies deposit into a density field and read its gradient, and never look at each
-other. Remaining: D-1b (density-damped speed), D-2 (Continuum Crowds proper), X-* (de-nodify +
-MultiMesh), overlapping waves.
+**A3 — big battles.** ⏸️ **PARKED 2026-09-07; the remainder moved to
+[beta_plan.md](beta_plan.md)'s *The horde engine*.**
 
-Before D-1: M-1 (attribution), P-2 (single-probe
-dicts) and S-1 (retire the enemy physics presence) are all done and committed. **Both P-2 and S-1
-produced no measurable gain, refuting the proposed cause of the two largest costs** — see
-a3_plan.md's *Where A3 actually stands*. The remaining measured cost looks inherent to
-one-Node-per-enemy, which only the de-nodify/MultiMesh rung addresses.
+**D-1 shipped and stays** — density-gradient separation, the stage's only measured win: −40.7%
+`us_per_enemy` at 600 packed, −17.6% at loose, with two before/after rounds producing the same two
+outcomes in the opposite order. The horde is a continuum now: enemies deposit into a density field
+and read its gradient, and never look at each other. Also shipped: a bench measurement bugfix, and
+M-1/P-2/S-1, **all three of which produced no gain** but refuted the proposed cause of the two
+largest costs (see a3_plan.md's *Where A3 actually stands*).
+
+**Parked because it was invisible.** Waves top out at 152 concurrent enemies, which the game
+already ran at 60 FPS before any of it. The remaining cost is inherent to one-Node-per-enemy,
+which only de-nodify/MultiMesh addresses — a big, risky item that earns its keep in beta, where a
+huge horde is a store-page screenshot, and not in alpha, where it was blocking nothing.
+
+**Two orphans rehomed:** the TileMapLayer migration to **A6** (Known issue 5), overlapping waves
+to **A5** (D-1's headroom means it no longer needs the rewrite).
+
+**A4 is next.**
 
 **A2 — enemy variety.** ✅ Done and verified; see [a2_plan.md](a2_plan.md) for the work order and
 step-by-step state. **Shipped: R-0 (contract hardening), R-1 + R-2 (both renames), M-0 (bench
@@ -1000,14 +1042,19 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   error — a stale filesystem cache.
 - **The bench harness measures the game for you: `/root/map1/Bench`.** `call("run", 600, "packed")`
   then read `result_line` via `runtime_get_script_vars`. Headline stat is **`us_per_enemy`**;
-  `16600 / us_per_enemy` is the enemy ceiling at 60Hz. **Only the FIRST run after a game start is
-  trustworthy — restart between every measurement** (M-1 measured +45% degradation by the third
-  back-to-back run, not recovered by idling). `frame_ms` is vsync-quantised and
-  secondary — `phys_ms` and `us_per_enemy` come from `Performance.TIME_PHYSICS_PROCESS` and are
-  not. Configs: `loose` (45px, fits only ~195 on level_01) and `packed` (20px, fits ~955).
-  `Enemy.bench_variant` drives the V0–V5 ablation ladder; **`reset()` it or the horde stays
-  crippled.** A run is ~4s at 60 FPS but ~45s in the 7 FPS regime, since sampling is
-  frame-bounded.
+  Headline stat is `us_per_enemy`. **The protocol below replaced an earlier one that was exactly
+  backwards** — "only the FIRST run is trustworthy, restart between every measurement" was an
+  artefact of the monitor-lag bug and is now simply wrong. **Back-to-back runs are valid; take
+  three and use the mean** (~±7% on one run, ~±4% on three, and unbiased).
+  **Absolute figures do not travel between sessions.** This machine downclocks — 1200 MHz of a
+  2401 MHz maximum was observed for a whole sitting, making that session's numbers ~3x another's.
+  **Compare ratios measured in one sitting, never absolutes across sittings.** Always re-measure
+  the "before" immediately before the change.
+  `phys_ms` and `us_per_enemy` come from `Performance.TIME_PHYSICS_PROCESS`; `frame_ms` is
+  worthless in the overloaded regime (see the next bullet). Configs: `loose` (45px, fits only ~195
+  on level_01 — pass n=190) and `packed` (20px, fits ~955). `Enemy.bench_variant` drives the V0–V5
+  ablation ladder; **`reset()` it or the horde stays crippled.** A 600-enemy run can take 10+
+  minutes of wall clock on a downclocked machine.
 - **The bench's `frame_ms` is NOT wall-clock time.** It reads exactly 133.33 in every V0 `packed`
   row ever recorded, which is 8 x 16.67 — Godot's `max_physics_steps_per_frame` clamp. Measured
   during a D-1 run: 13 real frames in six minutes, i.e. frames ~4s apart, while `frame_ms` reported

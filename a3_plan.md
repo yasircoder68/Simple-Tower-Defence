@@ -1,9 +1,39 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: M-0 built in A2. M-1, P-2 and S-1 COMPLETE (2026-09-06). D-1 density-gradient
-separation COMPLETE and MEASURED (2026-09-07) — the first rung to produce a real improvement:
-`us_per_enemy` 168.7 -> 100.1 at 600 packed, **-40.7%**, with no behavioural change. See
-*D-1 — density-gradient separation* below.**
+> [!CAUTION]
+> **THIS STAGE IS PARKED. THE REMAINING WORK MOVED TO [beta_plan.md](beta_plan.md) ON 2026-09-07.**
+>
+> Read *The horde engine* in beta_plan.md for what is still to do. **This file is now a record,
+> not a work order** — but it is the record that stops the next person repeating four dead ends,
+> so read it before touching the crowd code.
+>
+> **Why it was parked — not because it failed:** waves top out at **152 concurrent enemies**, and
+> the game already ran those at 60 FPS before any of this. The enemy ceiling was invisible to
+> every player, while the actual blocker on shipping — no main menu, no pause, a debug upgrade
+> panel bolted to the play screen — sat untouched. **A4 was always the real blocker.**
+>
+> **What shipped and stays shipped:**
+> - **D-1 — density-gradient separation** (`4901672`): the pairwise 3x3 scan deleted, replaced by
+>   a density field. **−40.7% `us_per_enemy`** at 600 packed, ceiling ~250 -> ~420, no behavioural
+>   change. See *D-1* below for the full record.
+> - **A bench that does not lie** — a real measurement bug found and fixed (`BENCH_TAG "M-0b"`).
+> - **Three hypotheses refuted by measurement:** P-2 (hashing), S-1 (physics broadphase), G-2
+>   (manager loop, bounded at ~10%).
+>
+> **What moved to beta:** D-1b (density-damped speed), D-2 (Continuum Crowds proper), X-\*
+> (de-nodify + MultiMesh), and the P-\*/G-\* ladder as a record of what is already dead.
+>
+> **Two things that left this file entirely, because dissolving the stage orphaned them:**
+> - **T-1, the TileMapLayer migration, is now A6's** (alpha_plan.md). Known issue 5's rule is
+>   "with the horde rewrite **or** before levels 2–15, whichever comes first" — and with the
+>   rewrite in beta, A6 comes first.
+> - **Overlapping waves is now A5's.** It was deferred here because overlap needs ~300 concurrent
+>   enemies against a ~250 ceiling. **D-1 raised that to ~420, so it no longer needs the rewrite
+>   at all.**
+
+**Status: PARKED at D-1 (2026-09-07). M-0, M-1, P-2, S-1 and D-1 are done and committed. D-1 is
+the stage's only measured win: `us_per_enemy` 168.7 -> 100.1 at 600 packed, **−40.7%**, with no
+behavioural change.**
 
 > [!NOTE]
 > **The tripwire fired, the re-plan happened, and it worked.** D-1 replaced the pairwise scan with
