@@ -36,6 +36,7 @@ no pause, and the upgrade panel is a debug readout bolted to the play screen. Th
 | Player character | **Pure tower defense.** No player unit. |
 | Meta-progression | **Yes** — permanent upgrades, `user://` save. Currencies are silver + gold; there is no "souls". |
 | In-round play | **Cooldown abilities.** Towers are pre-placed and auto-fire; abilities are the only live input. |
+| Horde movement | **Fluid, not individuals** (decided 2026-09-07) — the horde should read like water pulled through a maze. See a3_plan.md's *THE DIRECTION TO TAKE NEXT*. |
 
 **The classroom / school-horror art has been deleted** (`dd49e82`) — ~148 PNGs, 106MB, wrong
 theme. It is still in git history if ever needed. Every sprite in the running game is a
@@ -611,7 +612,28 @@ drops to 2–4.
 > The 24-cap null result is explained: the nine-cell scaffolding is paid **in full by an enemy with
 > zero neighbours**, so no inner-loop cap can reduce it.
 
-**Next attempts, ranked by measurement rather than intuition** (a3_plan's ladder):
+> [!IMPORTANT]
+> **The ranked list below is superseded as a strategy.** It is a list of ways to make the existing
+> per-agent neighbour scan *cheaper*; the decided direction is to **delete that scan** by moving
+> the horde to a density-field (fluid) formulation. See a3_plan.md's *THE DIRECTION TO TAKE NEXT*.
+>
+> **Why that is not just a style change:** the pairwise 3x3 neighbour scan is what makes the horde
+> look like individuals shoving each other AND what costs 25.5 µs/enemy. Continuum/density
+> formulations have no pairwise step at all — each agent adds its density to a grid (O(1)) and
+> reads the gradient back (O(1)). One change targets both the 25.5 scan and most of the 11.5
+> grid rebuild, because a density grid is a flat `PackedFloat32Array` rather than ~200 freshly
+> allocated Arrays per frame.
+>
+> **Independent confirmation of the ceiling:** public Godot 4 boid projects measure **~300 agents**
+> for CPU-per-agent versus **7,000–32,000** on a compute shader. This project measures ~250.
+> **The current architecture is at its natural limit; micro-optimisation will not reach 1500.**
+>
+> A2's registry survives the change: `separation_weight` becomes the gradient-response multiplier
+> (the ogre still ploughs a lane) and `ignore_separation` becomes "skip the gradient read" (the
+> skeleton still slides through). Splash queries keep `enemy_grid_nodes` — only the *separation*
+> path becomes a field read.
+
+**Kept for reference — ways to shave the existing scan** (a3_plan's original ladder):
 
 1. **Separation** — 25.5 µs/enemy. **But not by flattening the grid to kill hashing:** P-2 did
    exactly that experiment (single-probe `get()` in place of `has()`-then-`[]`) and measured

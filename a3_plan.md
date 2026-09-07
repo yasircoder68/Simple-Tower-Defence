@@ -45,6 +45,100 @@ from the plan's optimism.
 
 Current baseline: **~54–57 µs/enemy** at 600 packed. Target for 1500 enemies: **≤ 11.1**.
 
+---
+
+## THE DIRECTION TO TAKE NEXT — density-field flow (researched 2026-09-07)
+
+**Decided by the user:** the horde should move like *fluid* — water pulled through a maze — rather
+than like N individuals jostling. Researched, and the finding is better than a style change:
+
+> **The fluid model is also the performance fix.** The thing that makes the horde look like
+> individuals shoving each other is the same thing that costs 25.5 µs/enemy: the pairwise
+> neighbour scan. Fluid formulations do not have one.
+
+### Why it is both at once
+
+`_separation()` today reads a 3x3 block of grid cells and pushes against every neighbour found —
+O(n x k), and the largest single measured cost in the game. The continuum / density formulation
+never compares agents to each other at all:
+
+1. Each enemy **adds its density** to a grid — one write, O(1)
+2. Each enemy **reads the density gradient** at its position — ~4 samples, O(1)
+3. It moves *down* the gradient, away from crowding
+
+Density aggregates at the grid level, so collective behaviour emerges with **no pairwise checks**.
+That is literally how water finds its level, which is why it produces the wanted look.
+
+### External validation of the ~250 ceiling
+
+Independent Godot 4 measurements from public boid projects:
+
+| Approach | Agents |
+|---|---|
+| CPU, per-agent | **~300** |
+| Compute shader | **7,000 @ 75fps**, **32,000 @ 30fps** |
+
+**This project's measured ceiling is ~250.** That matches the ~300 figure closely enough to treat
+as confirmation: the current architecture is at its natural limit, and **no amount of
+micro-optimisation reaches 1500.** It is the same conclusion P-2 and S-1 each reached the
+expensive way.
+
+### The four options, cheapest first
+
+**1 — Density-gradient separation. START HERE.** Replace `_separation()`'s 3x3 scan with a
+density-field read. Keeps nodes, the wave machine, the registry, everything. Targets **both**
+of the two largest measured costs at once:
+
+- the 25.5 µs/enemy neighbour scan — deleted outright, not shaved
+- most of the 11.5 µs/enemy grid rebuild — a density grid is a flat `PackedFloat32Array` of
+  counts, not ~200 freshly allocated Arrays every frame
+
+That is ~37 of ~56 µs/enemy addressed by one change of roughly a day's size.
+
+**A2's enemy registry survives intact**, which is what makes this cheap:
+
+| Registry field | Under density flow |
+|---|---|
+| `separation_weight` (ogre 0.15) | multiplier on the gradient response — the ogre still ploughs its lane |
+| `ignore_separation` (skeleton) | skip the gradient read — the skeleton still slides through |
+
+*Note the splash queries still need per-cell membership.* `get_enemies_in_radius()` must keep
+finding *which* nodes, so leave `enemy_grid_nodes` in place and only replace the **separation**
+path with the density read. That makes step 1 purely additive to the data model.
+
+**2 — Continuum Crowds proper.** The flow field itself accounts for congestion, so the horde
+*routes around its own jams* and finds alternate channels — the water-through-a-maze behaviour
+specifically, not merely smoother pushing. The canonical write-up warns the full algorithm is "way
+too much recalculation" for production, **but that applies to large maps with many destinations.
+This map is ~435 cells with exactly one destination**, so an Eikonal fill over it is trivial. Very
+feasible here.
+
+**3 — De-nodify + MultiMesh** (the existing X-\* rung). Attacks *engine* overhead — transform
+writes, node dispatch — rather than the algorithm, so it **composes with 1 and 2** rather than
+competing. Godot's own docs recommend MultiMesh plus packed arrays for thousands of instances.
+
+**4 — GPU compute shader.** Where the 7,000–32,000 figures come from. Biggest jump; **smoke-test
+under this project's `gl_compatibility` renderer in the first hour**, not in week three.
+
+### Why this unblocks the stalled ladder
+
+Options 1 and 2 **do not depend on the distorted M-1 attribution table**, because they delete the
+expensive work rather than trying to shave it. Every rung that stalled — P-1, P-3, G-1, G-2 — was
+an attempt to make the existing per-agent scan cheaper. This replaces the scan.
+
+### Sources
+
+- Continuum Crowds, Treuille et al. — https://dl.acm.org/doi/10.1145/1141911.1142008
+- Practical write-up — https://howtorts.github.io/2014/01/09/continuum-crowds.html
+- Flow Field Tiles (Supreme Commander 2), Game AI Pro ch.23 —
+  https://www.gameaipro.com/GameAIPro/GameAIPro_Chapter23_Crowd_Pathfinding_and_Steering_Using_Flow_Field_Tiles.pdf
+- SPH crowds at extreme densities — https://www.sciencedirect.com/science/article/abs/pii/S0097849321001205
+- Real-time density-based crowd simulation — https://dl.acm.org/doi/abs/10.1002/cav.1424
+- godot-boids (RenderingDevice compute) — https://github.com/DevPoodle/godot-boids/
+- Godot MultiMesh optimisation — https://docs.godotengine.org/en/latest/tutorials/performance/using_multimesh.html
+
+---
+
 ### SOLVED (2026-09-07) — the "degradation" was never real: the monitor lags
 
 **`Performance.TIME_PHYSICS_PROCESS` updates far more slowly than once per frame, and the harness
