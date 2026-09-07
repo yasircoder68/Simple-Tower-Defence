@@ -21,6 +21,15 @@ extends Node2D
 ## Enemy scripts must never name LevelController: the map is duck-typed through
 ## `map`, deliberately, so that `class_name Enemy` here and a class_name on the
 ## controller could never form a cyclic reference.
+##
+## THIS SCRIPT NO LONGER KNOWS ANYTHING ABOUT ITS NEIGHBOURS. A3's D-1 deleted
+## _separation(), which read a 3x3 block of the map's spatial grid and pushed
+## against every enemy it found there — O(n x k), and the largest single
+## measured cost in the game. An enemy now deposits its mass into a density
+## field (done for it, in the controller's rebuild loop) and reads the local
+## gradient back, moving down it. Two O(1) operations, no pairwise comparison
+## anywhere, which is both why the horde reads as a fluid and why the cost went
+## away rather than getting cheaper.
 
 ## The group every enemy joins. Single definition, referenced by archer, wizard,
 ## arrow, fire, boulder and level_controller.
@@ -46,6 +55,16 @@ const ROUND_CONTRACT := ["on_enemy_killed", "on_enemy_escaped"]
 ## skips, plus one more thing. Measuring a stage means subtracting its row from
 ## the row above — which gives a full cost breakdown with NO instrumentation
 ## inside any inner loop. See a3_plan.md's M-1.
+##
+## WHAT V0-V1 MEASURES CHANGED AT D-1, and mis-subtracting it is exactly how
+## this project produced a wrong cost table twice. Separation used to be
+## entirely enemy-side, so V0-V1 was its whole cost. Under density flow the
+## work is SPLIT: the gather (reading the gradient) is here and is skipped at
+## BENCH_NO_SEPARATION, but the scatter (depositing into the field) lives in
+## level_controller's rebuild and is only skipped at BENCH_NO_GRID. So:
+##
+##   V0 - V1  ->  the gather only
+##   V4 - V5  ->  the node grid AND the density scatter, together
 ##
 ## BENCH_FULL in all normal play, so the cost of this seam is one int compare
 ## per enemy per frame. That overhead is itself measured (a3_plan M-0's second
@@ -76,13 +95,6 @@ static var bench_variant: int = BENCH_FULL
 ## only — never leave it true, exactly as with bench_variant.
 static var bench_skip_position_write: bool = false
 
-const SEPARATION_RADIUS := 32.0
-const SEPARATION_RADIUS_SQ := SEPARATION_RADIUS * SEPARATION_RADIUS
-const MAX_SEPARATION_NEIGHBORS := 10
-# Hard ceiling on candidates examined per frame. Separation is a soft cosmetic
-# force, so sampling a bounded subset of a dense cell looks identical and keeps
-# the cost linear in enemy count instead of linear in local density.
-const MAX_SEPARATION_CHECKS := 24
 const ARRIVAL_RADIUS := 30.0
 
 const EnemyTypes := preload("res://systems/enemy_types.gd")
@@ -117,10 +129,16 @@ var hp: int = 10
 
 @onready var map = get_parent()
 
-# The grid dictionary is rebuilt in place (cleared + refilled) every frame, so
-# the REFERENCE is stable and safe to cache. Fetching it per frame through
-# map.get() instead costs a dictionary copy per enemy per frame.
-var _grid: Dictionary = {}
+## Whether the map provides a crowd-density field. Probed once at spawn, the
+## same pattern as _has_round_contract — testbed/clean_area.tscn has no field
+## at all and must keep running enemies unmodified, exactly as it did when the
+## fallback was an empty spatial grid.
+##
+## NOTE the array itself is deliberately NOT cached here. PackedFloat32Array is
+## copy-on-write, so 600 enemies holding a reference would make the controller's
+## every write deep-copy the whole field. The push is fetched through a method
+## call so the array stays single-owner. See level_controller.get_density_push().
+var _has_density: bool = false
 
 ## Answered once at spawn instead of at every call site. See _probe_round_contract().
 var _has_round_contract: bool = false
@@ -131,8 +149,7 @@ func _ready() -> void:
 	_resolve_stats()
 	_has_round_contract = _probe_round_contract()
 
-	if "enemy_grid" in map:
-		_grid = map.enemy_grid
+	_has_density = map.has_method("get_density_push")
 
 	_on_spawn()
 
@@ -221,10 +238,15 @@ func _physics_process(delta: float) -> void:
 
 	var separation_push := Vector2.ZERO
 	# ignore_separation is checked FIRST because it is an early-out: an enemy
-	# that ignores the crowd never enters the 3x3 scan at all, so it is cheaper
-	# than one that does.
-	if not ignore_separation and bench_variant < BENCH_NO_SEPARATION:
-		separation_push = _separation() * separation_weight
+	# that ignores the crowd never reads the density field at all, so it is
+	# cheaper than one that does. That is the same guarantee the flag had under
+	# the pairwise scan — a skeleton is still cheaper per frame than a goblin.
+	#
+	# It still DEPOSITS, though, because the scatter loop is type-blind. So a
+	# skeleton still shifts the crowd while sliding through it unmoved, which
+	# is the asymmetry the registry entry describes.
+	if not ignore_separation and _has_density and bench_variant < BENCH_NO_SEPARATION:
+		separation_push = map.get_density_push(global_position) * separation_weight
 
 	if bench_variant >= BENCH_NO_MOVE:
 		return
@@ -234,54 +256,6 @@ func _physics_process(delta: float) -> void:
 		desired_dir = flow_dir
 
 	_move_with_wall_slide(desired_dir * speed * delta)
-
-
-# Soft push-apart so the horde behaves like a fluid.
-#
-# Reads positions straight out of the map's spatial grid (a plain Array of
-# Vector2 per cell — packed arrays are copy-on-write and copy on every append). Two things matter for speed here and both were learned the hard
-# way: never build a merged candidate list (the allocation dwarfs the work), and
-# never reach through a node reference in the inner loop (each `other.global_position`
-# is a Variant dynamic dispatch — with ~200 candidates per enemy per frame that
-# alone took 600 enemies from 60 FPS to 2).
-func _separation() -> Vector2:
-	# clean_area.tscn drives enemies too and has no grid — fall back to no push.
-	if _grid.is_empty():
-		return Vector2.ZERO
-
-	var my_pos := global_position
-	var separation := Vector2.ZERO
-	var neighbor_count := 0
-	var checks := 0
-	var base := Vector2i(
-		floori(my_pos.x / SEPARATION_RADIUS),
-		floori(my_pos.y / SEPARATION_RADIUS))
-
-	for dx in range(-1, 2):
-		for dy in range(-1, 2):
-			var key := base + Vector2i(dx, dy)
-			# ONE hash, not two. has()-then-[] hashes the same key twice, and
-			# this runs nine times per enemy per frame whether or not the cell
-			# has anything in it. Untyped on purpose: get() returns null on a
-			# miss, so it cannot be annotated Array.
-			var cell = _grid.get(key)
-			if cell == null:
-				continue
-			for other_pos in cell:
-				checks += 1
-				if checks > MAX_SEPARATION_CHECKS:
-					return separation
-				var offset: Vector2 = my_pos - other_pos
-				var dist_sq := offset.length_squared()
-				# dist_sq == 0 is this enemy's own entry in the grid.
-				if dist_sq >= SEPARATION_RADIUS_SQ or dist_sq <= 0.0:
-					continue
-				var dist := sqrt(dist_sq)
-				separation += (offset / dist) * (1.0 - (dist / SEPARATION_RADIUS))
-				neighbor_count += 1
-				if neighbor_count >= MAX_SEPARATION_NEIGHBORS:
-					return separation
-	return separation
 
 
 # Walk into the wall, and if that fails try each axis on its own so the horde

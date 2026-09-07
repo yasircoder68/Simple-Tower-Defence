@@ -68,8 +68,10 @@ const MAX_SAMPLE_FRAMES := 6000
 ## Lattice spacings. `loose` is the PRIMARY config: most enemies have zero
 ## in-radius neighbours, which is the case the per-enemy scaffolding analysis
 ## says dominates, and the case where capping candidates at 24 changed nothing.
-## `packed` is tighter than SEPARATION_RADIUS (32), so every enemy has ~8
-## neighbours — it bounds the inner loop.
+## `packed` is tighter than the 32px cell size, so cells hold several enemies
+## each. Under the old pairwise scan that bounded its inner loop; since D-1 the
+## crowd cost is data-independent, so `packed` and `loose` now differ mainly in
+## how much OTHER per-enemy work the lattice provokes.
 ##
 ## Density has never been a controlled variable in this project's measurements,
 ## despite CLAUDE.md stating the falloff is super-linear in density rather than

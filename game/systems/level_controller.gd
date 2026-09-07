@@ -1,14 +1,59 @@
 extends Node2D
 
-# Enemies are pushed apart by this radius. It also sets the spatial grid cell
-# size, so one grid lookup covers every neighbour that could possibly matter.
+# Cell size of the enemy NODE grid — the one splash damage and tower targeting
+# query through get_enemies_in_radius(). Nothing to do with separation any more.
 #
-# Single-sourced from Enemy rather than duplicated here. These two MUST be equal
-# — this side buckets positions into cells, and the enemy side derives its own
-# cell key from the same number and scans only a 3x3 block. If they ever drifted
-# apart, enemies would read the wrong cells and separation would quietly go
-# wrong with nothing to signal it. One definition makes that unrepresentable.
-const SEPARATION_RADIUS := Enemy.SEPARATION_RADIUS
+# It used to be `Enemy.SEPARATION_RADIUS`, single-sourced because both sides
+# derived cell keys from it. D-1 ended that: enemies no longer index any grid,
+# so the constant lives where its only consumer is. The VALUE is unchanged at
+# 32.0 on purpose — it sets get_enemies_in_radius()'s search span, and moving it
+# would silently re-tune every splash query in the game.
+const GRID_CELL := 32.0
+
+# --- Crowd density field (A3 D-1) -------------------------------------------
+#
+# Replaces the pairwise 3x3 neighbour scan that used to be enemy.gd's
+# _separation(). Each enemy deposits its mass into this field once (O(1)) and
+# reads the local gradient back (O(1)); it never compares itself to another
+# enemy. That is what makes the horde read as a fluid rather than as N
+# individuals shoving, and it is also why the largest measured cost in the game
+# simply stops existing rather than getting cheaper. See a3_plan.md's D-1.
+
+## World px per density cell. Deliberately the old separation radius, so the
+## interaction scale is unchanged; drop it to 24 or 20 if the horde spreads too
+## wide (CIC's support is ~1-2 cells, slightly broader than the old hard cutoff).
+const DENSITY_CELL := 32.0
+## Cells of margin around the tilemap's used rect. Guarantees the 2x2 deposit
+## and gather blocks are in range for anything on the play area, so the hot path
+## needs one range test and no per-access clamping.
+const DENSITY_PAD := 3
+## Converts the raw gradient (units: mass per cell, per cell) into the same
+## scale as the pairwise push it replaces.
+##
+## CALIBRATED AGAINST A MEASUREMENT, not eyeballed. Both builds were
+## instrumented over a full identical round and the mean magnitude of the push
+## actually applied was recorded:
+##
+##   old pairwise scan   mean 0.277  (106,535 samples)
+##   density, gain 1.0   mean 0.682  (184,065 samples)
+##   -> 0.277 / 0.682 = 0.41
+##
+## Matched on the MEAN rather than the max, because the mean is what shapes the
+## crowd while the max is a tail event. A side effect worth knowing: the field
+## smooths extremes, so at this gain the new push has the same mean as the old
+## one but a lower peak (~0.98 against 2.34). See a3_plan.md's D-1.
+const DENSITY_GAIN := 0.41
+## Runaway guard, NOT a tuning knob — it does not bind in normal play at the
+## calibrated gain, and that is intended.
+##
+## It exists because the old code saturated implicitly: MAX_SEPARATION_CHECKS
+## (24) and MAX_SEPARATION_NEIGHBORS (10) capped how much push a dense cell
+## could produce. A gradient has no such ceiling and scales with real local
+## density, so at a bad enough choke the push could overwhelm the flow field
+## and make the horde stall or scatter backwards. Sized from the old measured
+## max (2.34), leaving ~2.4x headroom over what a wave-5 crowd actually
+## generates.
+const DENSITY_MAX_PUSH := 2.4
 
 ## Identifies this level for PlayerData's gold-once ledger. Must be unique
 ## across every level that ever ships.
@@ -40,14 +85,47 @@ var walls_dict: Dictionary = {} # Vector2i -> bool
 ## ghost-occupied cell you can never build on, or a leaked slot).
 var towers_by_cell: Dictionary = {}
 
-# Vector2i cell -> Array of enemy positions (Vector2), rebuilt each physics
-# frame. Positions rather than node references on purpose: separation reads this
-# hundreds of times per enemy per frame, and going through a node reference
-# means a Variant dynamic dispatch per read, which is what actually melts the
-# framerate at horde scale.
-var enemy_grid: Dictionary = {}
-# Same keys, but node references — for splash damage, which needs take_damage().
+# Vector2i cell -> Array of enemy nodes, rebuilt each physics frame. Splash
+# damage and tower targeting need to know WHICH nodes are nearby, so this
+# survives D-1 untouched.
+#
+# Its twin — a parallel dictionary of enemy POSITIONS — was deleted at D-1. It
+# existed solely so _separation() could read neighbour positions without a
+# Variant dynamic dispatch through a node reference. Nothing reads positions out
+# of a grid any more, so it was ~200 Array allocations a frame for one caller
+# that no longer exists.
 var enemy_grid_nodes: Dictionary = {}
+
+# --- Crowd density field ----------------------------------------------------
+#
+# Flat and typed: index is iy * _density_w + ix, allocated once per level and
+# refilled with one fill(0.0) per frame. On level_01 that is 52 x 30 = 1560
+# floats (6 KB), which fits in L1 — the point of a flat array over a Dictionary
+# of freshly allocated buckets.
+#
+# PRIVATE, AND IT MUST STAY THAT WAY. PackedFloat32Array is copy-on-write: any
+# second holder of a reference makes the next write here deep-copy the whole
+# array. Never alias it into a local inside the deposit loop, and never hand it
+# to an enemy — they read through get_density_push() precisely so this stays
+# single-owner. Same trap this project already recorded for PackedVector2Array.
+var _enemy_density: PackedFloat32Array = PackedFloat32Array()
+var _density_w: int = 0
+var _density_h: int = 0
+## World coordinates of density cell (0, 0)'s corner. Sits DENSITY_PAD cells
+## outside the map, so grid coordinates are non-negative everywhere an enemy can
+## be and int() is a safe (and cheaper) stand-in for floori().
+var _density_origin: Vector2 = Vector2.ZERO
+var _density_inv_cell: float = 1.0 / DENSITY_CELL
+## Upper bounds for the in-range test, precomputed as floats so the hot path
+## does no int->float conversion.
+var _density_max_x: float = 0.0
+var _density_max_y: float = 0.0
+## Enemies found outside the field this frame, and therefore not deposited.
+## Should be 0 on level_01 — StartPoint, EndPoint and the whole flow field are
+## inside the used rect. Counted rather than silently dropped because a
+## mechanism that fails quietly is how this project has lost a subsystem before
+## (see CLAUDE.md's lives_depleted). Readable via runtime_get_script_vars.
+var density_oob_count: int = 0
 
 var dragging_type: String = ""
 var ghost: Node2D = null
@@ -94,8 +172,12 @@ var round_ui: CanvasLayer = null
 
 func _ready() -> void:
 	add_to_group("map")
-	_assert_enemy_contract()
+	# Ordered after generate_flow_field(), not before: the assertion now also
+	# checks that the density field actually got built, which is state rather
+	# than a declaration, and a guard that fires on every launch teaches people
+	# to ignore it.
 	generate_flow_field()
+	_assert_enemy_contract()
 
 	# Managers are constructed before round_ui because round_ui connects to
 	# their signals in setup() — the ordering dependency base_health already had.
@@ -143,7 +225,7 @@ func _ready() -> void:
 ## without its caller is silent: the has_method() guard simply returns false and
 ## kills stop scoring. This turns that into a startup error.
 func _assert_enemy_contract() -> void:
-	var required := Enemy.ROUND_CONTRACT + ["get_enemies_in_radius"]
+	var required := Enemy.ROUND_CONTRACT + ["get_enemies_in_radius", "get_density_push"]
 	var missing: Array = []
 	for member in required:
 		if not has_method(member):
@@ -151,8 +233,8 @@ func _assert_enemy_contract() -> void:
 
 	if not missing.is_empty():
 		push_error("level_controller is missing enemy-contract members %s — enemies will not score. A rename has drifted." % [missing])
-	elif not ("enemy_grid" in self):
-		push_error("level_controller has no enemy_grid — separation will be silently disabled for every enemy.")
+	elif _enemy_density.is_empty():
+		push_error("level_controller's density field is empty — the crowd push will be silently zero for every enemy. _build_density_grid() did not run.")
 
 
 func _physics_process(_delta: float) -> void:
@@ -170,37 +252,70 @@ func _physics_process(_delta: float) -> void:
 # 600 enemies. A single O(n) rebuild here replaces all of those queries.
 
 func _rebuild_enemy_grid() -> void:
-	enemy_grid.clear()
 	enemy_grid_nodes.clear()
+	# One flat memset over 1560 floats, versus clearing a Dictionary and
+	# dropping ~200 Arrays for the collector every frame.
+	_enemy_density.fill(0.0)
+	density_oob_count = 0
+
 	for z in get_tree().get_nodes_in_group(Enemy.GROUP):
 		# queue_free() doesn't leave the group until end of frame, so a dead
 		# enemy would otherwise be indexed and handed to splash queries.
 		if not is_instance_valid(z) or z.is_queued_for_deletion():
 			continue
 		var pos: Vector2 = z.global_position
+
+		# --- Node grid, for splash and tower targeting ----------------------
+		# One hash per enemy. Arrays are reference types, so appending to this
+		# local mutates the array actually stored in the dictionary.
 		var key := _grid_key(pos)
-		# Two hashes per enemy instead of three-to-four. The old form hashed
-		# enemy_grid twice (has, then []) plus enemy_grid_nodes once more.
-		# Arrays are reference types, so appending to these locals mutates the
-		# arrays actually stored in the dictionaries.
-		var bucket = enemy_grid.get(key)
 		var nodes = enemy_grid_nodes.get(key)
-		if bucket == null:
-			bucket = []
+		if nodes == null:
 			nodes = []
-			enemy_grid[key] = bucket
 			enemy_grid_nodes[key] = nodes
-		bucket.append(pos)
 		nodes.append(z)
+
+		# --- Density scatter, cloud-in-cell ---------------------------------
+		# The enemy's mass of 1.0 is split bilinearly across the four cells
+		# whose CENTRES surround it, rather than dumped whole into one cell.
+		# That is what makes the field — and therefore the gradient read back
+		# out of it — continuous instead of blocky at cell boundaries, so the
+		# horde does not visibly snap to a 32px lattice.
+		#
+		# Mass is 1.0 for EVERY type, deliberately: under the old scan each
+		# enemy contributed exactly one position regardless of type, so a
+		# uniform mass is what keeps D-1 from being a difficulty change. A
+		# per-type deposit_mass (the ogre's sprite is twice a goblin's) is an
+		# obvious registry field later, not now.
+		#
+		# NEVER write `var d := _enemy_density` here. See the field's
+		# declaration: that alias would deep-copy 6 KB per enemy per frame.
+		var f := _density_coords(pos)
+		if f.x < 0.0 or f.y < 0.0 or f.x >= _density_max_x or f.y >= _density_max_y:
+			# Outside the field. The node grid above already has it, so splash
+			# still finds it; it just exerts no crowd pressure this frame.
+			density_oob_count += 1
+			continue
+		var ix := int(f.x)
+		var iy := int(f.y)
+		var u := f.x - ix
+		var v := f.y - iy
+		var iu := 1.0 - u
+		var iv := 1.0 - v
+		var base := iy * _density_w + ix
+		_enemy_density[base] += iu * iv
+		_enemy_density[base + 1] += u * iv
+		_enemy_density[base + _density_w] += iu * v
+		_enemy_density[base + _density_w + 1] += u * v
 
 
 func _grid_key(world_pos: Vector2) -> Vector2i:
-	return Vector2i(floori(world_pos.x / SEPARATION_RADIUS), floori(world_pos.y / SEPARATION_RADIUS))
+	return Vector2i(floori(world_pos.x / GRID_CELL), floori(world_pos.y / GRID_CELL))
 
 
 func get_enemies_in_radius(world_pos: Vector2, radius: float) -> Array:
 	var result: Array = []
-	var span := int(ceil(radius / SEPARATION_RADIUS))
+	var span := int(ceil(radius / GRID_CELL))
 	var base := _grid_key(world_pos)
 	for dx in range(-span, span + 1):
 		for dy in range(-span, span + 1):
@@ -222,6 +337,105 @@ func get_enemies_in_radius(world_pos: Vector2, radius: float) -> Array:
 				if z.global_position.distance_to(world_pos) <= radius:
 					result.append(z)
 	return result
+
+
+# --- Crowd density field ----------------------------------------------------
+
+## Sized once per level, from the tilemap's own extent, so it can never drift
+## from the map. Called at the end of generate_flow_field() because that is
+## already the one place that owns the map's geometry.
+func _build_density_grid() -> void:
+	var rect: Rect2i = tile_map.get_used_rect()
+	# map_to_local() returns a cell's CENTRE, so back off half a tile to reach
+	# the rect's true corner.
+	var half_tile := Vector2(tile_map.tile_set.tile_size) * 0.5
+	var top_left: Vector2 = tile_map.to_global(tile_map.map_to_local(rect.position) - half_tile)
+	var bottom_right: Vector2 = tile_map.to_global(
+		tile_map.map_to_local(rect.position + rect.size) - half_tile)
+	var span: Vector2 = bottom_right - top_left
+
+	_density_origin = top_left - Vector2(DENSITY_CELL, DENSITY_CELL) * DENSITY_PAD
+	_density_w = int(ceil(span.x / DENSITY_CELL)) + 2 * DENSITY_PAD
+	_density_h = int(ceil(span.y / DENSITY_CELL)) + 2 * DENSITY_PAD
+	_density_inv_cell = 1.0 / DENSITY_CELL
+	# The gather and scatter blocks are 2x2, so the last legal integer cell is
+	# w - 2; the test is `< w - 1` on the fractional coordinate.
+	_density_max_x = float(_density_w - 1)
+	_density_max_y = float(_density_h - 1)
+
+	_enemy_density.resize(_density_w * _density_h)
+	_enemy_density.fill(0.0)
+
+	if debug_logging:
+		print("[map1] density field %d x %d cells @ %.0fpx, origin %s"
+			% [_density_w, _density_h, DENSITY_CELL, _density_origin])
+
+
+## World position -> fractional density-grid coordinates, where INTEGER values
+## land on cell CENTRES.
+##
+## Scatter and gather MUST both go through this. A half-cell disagreement
+## between them would be a silent constant bias in every push direction, and it
+## would also break the self-force cancellation in get_density_push(), which
+## assumes both sides see the same (u, v). One definition makes that
+## unrepresentable — the same argument that used to single-source the old grid
+## cell size across two files.
+func _density_coords(world_pos: Vector2) -> Vector2:
+	return Vector2(
+		(world_pos.x - _density_origin.x) * _density_inv_cell - 0.5,
+		(world_pos.y - _density_origin.y) * _density_inv_cell - 0.5)
+
+
+## The crowd push at a point: down the local density gradient, scaled and
+## clamped. This is what replaced enemy.gd's _separation(), and the enemy
+## multiplies the result by its own separation_weight exactly as before.
+##
+## A METHOD rather than exposing _enemy_density, because the array is
+## copy-on-write — see its declaration. One cross-object call per enemy per
+## frame is the price of keeping it single-owner, and it is a fraction of the
+## 3x3 scan it replaces.
+func get_density_push(world_pos: Vector2) -> Vector2:
+	var f := _density_coords(world_pos)
+	if f.x < 0.0 or f.y < 0.0 or f.x >= _density_max_x or f.y >= _density_max_y:
+		return Vector2.ZERO
+
+	var ix := int(f.x)
+	var iy := int(f.y)
+	var u := f.x - ix
+	var v := f.y - iy
+	var base := iy * _density_w + ix
+
+	var a: float = _enemy_density[base]
+	var b: float = _enemy_density[base + 1]
+	var c: float = _enemy_density[base + _density_w]
+	var e: float = _enemy_density[base + _density_w + 1]
+
+	# Gradient of the bilinear interpolant over those four cells. It varies
+	# smoothly WITHIN a cell rather than being constant across it, which is what
+	# stops the push direction snapping at cell boundaries.
+	var gx := (b - a) * (1.0 - v) + (e - c) * v
+	var gy := (c - a) * (1.0 - u) + (e - b) * u
+
+	# SUBTRACT THIS ENEMY'S OWN DEPOSIT. It is in the field it is reading, and
+	# its self-contribution is NOT zero: differentiating the CIC weights gives
+	# d/du = (2u-1)[(1-v)^2 + v^2], and likewise for v. Left in, that is a
+	# coherent lattice-aligned pull toward u = v = 0.5 — every enemy feeling it
+	# identically, while the real neighbour forces are incoherent — and the
+	# horde would visibly crystallise onto the grid.
+	#
+	# The closed form uses values already in hand, so removing it costs ~8 flops
+	# and no memory traffic. It also yields a falsifiable invariant that catches
+	# a scatter/gather lattice mismatch immediately: A SINGLE ENEMY ALONE ON THE
+	# MAP MUST GET EXACTLY Vector2.ZERO.
+	var iu := 1.0 - u
+	var iv := 1.0 - v
+	gx -= (2.0 * u - 1.0) * (iv * iv + v * v)
+	gy -= (2.0 * v - 1.0) * (iu * iu + u * u)
+
+	# Not divided by DENSITY_CELL: the gradient is left in mass-per-cell units
+	# and DENSITY_GAIN carries the conversion, since the caller normalises the
+	# blended direction anyway.
+	return (Vector2(-gx, -gy) * DENSITY_GAIN).limit_length(DENSITY_MAX_PUSH)
 
 
 # --- Round lifecycle ----------------------------------------------------
@@ -639,6 +853,10 @@ func generate_flow_field() -> void:
 
 	if debug_logging:
 		print("[map1] target cell %s | search rect %s | flow field %d cells" % [target_cell, rect, flow_field.size()])
+
+	# Sized here rather than in _ready() so it can never be built against a
+	# different tilemap extent than the flow field walked.
+	_build_density_grid()
 
 
 func get_flow_direction(world_pos: Vector2) -> Vector2:

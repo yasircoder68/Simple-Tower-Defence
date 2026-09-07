@@ -1,9 +1,18 @@
 # A3 — "Big Battles" — Implementation Work Order
 
-**Status: M-0 built in A2. M-1, P-2 and S-1 COMPLETE (2026-09-06).**
+**Status: M-0 built in A2. M-1, P-2 and S-1 COMPLETE (2026-09-06). D-1 density-gradient
+separation COMPLETE and MEASURED (2026-09-07) — the first rung to produce a real improvement:
+`us_per_enemy` 168.7 -> 100.1 at 600 packed, **-40.7%**, with no behavioural change. See
+*D-1 — density-gradient separation* below.**
+
+> [!NOTE]
+> **The tripwire fired, the re-plan happened, and it worked.** D-1 replaced the pairwise scan with
+> a density field and measured **-40.7%** — comfortably clear of the 15% floor the plan set for
+> itself. The CAUTION below is kept because its reasoning is still correct about P-2 and S-1; it is
+> no longer a stop sign.
 
 > [!CAUTION]
-> **THE TRIPWIRE HAS FIRED. Stop and re-plan before spending another rung.**
+> **THE TRIPWIRE FIRED HERE (superseded by D-1 above — kept for its reasoning).**
 >
 > This plan's own rule: *"Two consecutive rungs missing their prediction by more than 50% means the
 > cost model is wrong — stop and re-measure rather than keep spending against it."*
@@ -41,9 +50,17 @@ from the plan's optimism.
 | G-1 flatten grid | **do not build as written** | premise measured and refuted |
 | G-2 manager loop | not started | bounded at ~10%, cannot be the fix |
 | X-\* de-nodify + MultiMesh | not started | **now the only rung aimed at what was actually measured** |
+| **D-1** density-gradient separation | **done, shipped** | **-40.7% at packed, -17.6% at loose. First real win.** |
+| D-1b density-damped speed | not started | the "water not gas" look; a difficulty change, gate it off |
+| D-2 Continuum Crowds proper | not started | congestion feeds the flow field — the maze-routing look |
 | A3-ship overlapping waves | not started | |
 
-Current baseline: **~54–57 µs/enemy** at 600 packed. Target for 1500 enemies: **≤ 11.1**.
+Current baseline: **~54–57 µs/enemy** at 600 packed *on the session that figure was taken in* —
+see D-1's warning about cross-session comparison, which is a factor of 3 on this machine, not the
+14% this document claims. Target for 1500 enemies: **≤ 11.1**.
+
+**D-1 cut the per-enemy cost by 40.7% measured in-sitting.** That is a ratio, and the ratio is the
+only thing that travels between sessions.
 
 ---
 
@@ -138,6 +155,197 @@ an attempt to make the existing per-agent scan cheaper. This replaces the scan.
 - Godot MultiMesh optimisation — https://docs.godotengine.org/en/latest/tutorials/performance/using_multimesh.html
 
 ---
+
+---
+
+## D-1 — density-gradient separation — SHIPPED AND MEASURED (2026-09-07)
+
+**The first rung in A3 to produce a measurable improvement.** Predicted 30–40% at `packed`;
+measured **40.7%**. The pairwise 3x3 neighbour scan is gone — not optimised, deleted.
+
+### Result
+
+`BENCH_TAG "M-0b"`, V0, three back-to-back runs per row, same sitting, no restart between runs.
+
+| Build | config | n | runs (µs/enemy) | **mean** | change |
+|---|---|---|---|---|---|
+| before D-1 | packed | 600 | 178.3 / 168.7 / 159.2 | **168.7** | — |
+| **after D-1** | packed | 600 | 99.3 / 100.5 / 100.4 | **100.1** | **−40.7%** |
+| before D-1 | loose | 190 | 136.5 | **136.5** | — |
+| **after D-1** | loose | 190 | 112.5 | **112.5** | **−17.6%** |
+
+`loose` is a single run each side rather than three (each takes ~6 min of wall clock on this
+machine); it is corroborating evidence, not the headline. The predicted band for it was 15–25%.
+
+**The post-change spread is ±0.6%, against ±6% before.** That is not luck and it is worth knowing:
+the old scan's cost depended on local density through `MAX_SEPARATION_CHECKS` and the
+neighbour-count early-out, so it varied with where the lattice happened to sit. The density path
+has no early-out and no data-dependent branch, so **every enemy costs the same every frame**. The
+instrument got sharper as a side effect of the optimisation.
+
+### READ THIS BEFORE COMPARING AGAINST ANY EARLIER ROW
+
+**This session's absolute numbers are ~3x the documented `M-0b` series (mean 55.9), and the code is
+not why.** The machine was downclocked for the whole sitting:
+
+```
+Intel i5-4210U   MaxClockSpeed 2401 MHz   CurrentClockSpeed 1200 MHz   load 65-77%
+```
+
+A dual-core ULV laptop CPU running at half its rated clock, with the editor, the game and the
+agent's own processes contending. **This document's "drift across sessions ~14%" is badly
+understated** — it is a factor of 3 here.
+
+**The before/after comparison is unaffected**, because both halves were taken in this one sitting,
+minutes apart, on the same machine state — which is exactly what the protocol requires. But
+**never quote 168.7 or 100.1 against a figure from another session.** Only the ratio travels.
+
+### A second measurement finding: `frame_ms` is not wall-clock time
+
+`frame_ms_p50` reads **exactly 133.33** in every V0 `packed` row this project has ever recorded,
+across `M-0` and `M-0b` alike. It is not vsync, and it is not coincidence.
+
+Measured directly during a post-change run: `_frames_seen` advanced **13 frames in six minutes**
+while `frame_ms` reported 133.33 (7.5 fps). Real frames were roughly **4 seconds apart**. 133.33 ms
+is 8 x 16.67 — Godot's `max_physics_steps_per_frame` clamp — so what the bench samples as `delta`
+is the engine's *clamped* delta, not elapsed time.
+
+Two consequences, both recorded rather than acted on:
+
+- **`frame_ms` carries no information at all in the overloaded regime.** The existing note calls it
+  "vsync-quantised and secondary"; the real mechanism is the physics-step clamp, and it is worse
+  than quantisation — the number is decoupled from elapsed time entirely.
+- **`TIME_PHYSICS_PROCESS` is a per-main-iteration total spanning up to 8 physics steps**, not a
+  per-tick cost. That does not affect any before/after ratio (both sides are clamped identically),
+  but it does mean **`16600 / us_per_enemy` may not be the enemy ceiling it is documented to be**.
+  Worth settling before the next target is set against it. Not settled here.
+
+### The calibration, and why the gain is not a guess
+
+The two force models are in different units: the old push was a sum of up to 10 pair terms; the new
+one is a density gradient in mass-per-cell. Rather than eyeball it, **both builds were instrumented
+over a full identical round** and the magnitude of the push actually applied was accumulated:
+
+| Build | mean applied push | max | samples |
+|---|---|---|---|
+| old pairwise scan | **0.277** | 2.339 | 106,535 |
+| density, gain 1.0 | **0.682** | clamped | 184,065 |
+
+`DENSITY_GAIN = 0.277 / 0.682 = 0.41`. Matched on the **mean**, because the mean is what shapes the
+crowd and the max is a tail event. A consequence worth knowing: the field smooths extremes, so at
+the calibrated gain the new push has the same mean as the old with a **lower peak** (~0.98 against
+2.34). `DENSITY_MAX_PUSH` (2.4) is therefore a runaway guard that does not bind in normal play —
+deliberately, and documented as such at the constant.
+
+The instrumentation was temporary and is not in the shipped code.
+
+### Two invariants, tested rather than assumed
+
+**A lone enemy on an otherwise empty map gets exactly `Vector2.ZERO`.** Measured: `(0.0, 0.0)`.
+
+This is the whole self-force argument made checkable. An enemy reads a field containing its own
+deposit, and the self-contribution is **not** zero — differentiating the CIC weights gives
+`d/du = (2u-1)[(1-v)^2 + v^2]`. Left in, it is a coherent lattice-aligned pull toward the cell
+corner that **every enemy feels identically**, while real neighbour forces are incoherent — so the
+horde would visibly crystallise onto a 32px grid. It is subtracted analytically.
+
+The same test catches a half-cell disagreement between the scatter and gather lattices, which is
+why both go through one `_density_coords()`.
+
+**Sign check, two enemies 45px apart on the x axis:** A at x=-135 pushed `-0.285` in x, B at x=-90
+pushed `+0.053`. Each away from the other. The magnitudes differ because the two sit at different
+fractional positions within their cells — CIC discretisation, not a bug; it averages out over a
+crowd.
+
+### Gameplay acceptance — no behavioural change
+
+Fixed layout both sides: archer (12,8), wizard (15,8), archer (15,10), wizard (12,12). Same save
+(archer 4/7/11, wizard 5/5/5, 4 slots). Wave maxima 64 / 96 / 154 / 238 / 354, total **906**.
+
+| | round 1 | round 2 |
+|---|---|---|
+| **before** | 900, **17/20**, WON | 906, **20/20**, WON |
+| **after** | 906, **20/20**, WON | 900, **17/20**, WON |
+
+**The same two outcomes, in the opposite order.** Every shortfall reconciles exactly: 906 − 900 = 6
+= three small escapes = three lives. Per-wave figures were exact on both before-rounds
+(64/96/154/232/354 and 64/96/154/238/354), and the after-rounds hit 906 with 20/20, which is only
+reachable with zero escapes on every wave.
+
+That is as clean a null result as this game can produce, and it is worth being precise about *why*
+two rounds were needed: the two before-rounds differed from **each other** by 3 lives and 6 silver.
+**A single round would have "shown" a regression or an improvement with equal ease.**
+
+Also verified:
+
+- **`density_oob_count == 0`** through every round. No enemy ever left the field.
+- **Zero runtime errors** across all four rounds and both bench sessions (`debugger_get_log`, not
+  `editor_get_console`).
+- **The ogre still ploughs.** Probed directly: an empty-field reading at a point was
+  `(-0.051, +0.119)`; with an ogre 25px to its +x it became `(-0.270, +0.043)` — a body there is
+  pushed away from the ogre. So the ogre **deposits full mass** while `separation_weight 0.15`
+  still governs what it *receives*. The asymmetry is intact, and it was measured, not reasoned.
+- **The skeleton still slides.** Identical field reading to the ogre's (`(-0.270, +0.043)`) — the
+  scatter loop has no type branch, so a skeleton shifts the crowd exactly as anything else does —
+  while `ignore_separation = true` makes it skip its own gather.
+- **The testbed still runs.** `clean_area.tscn` has no density field; `_has_density` probes
+  `false`, enemies move, no errors.
+- **Visual check for crystallisation: passed.** A wave-5 crowd reads as a cohesive mass filling the
+  corridor width, with no lattice snapping, no regular rows and no 32px banding.
+
+### What changed structurally
+
+- `enemy.gd::_separation()` **deleted**, along with `SEPARATION_RADIUS`, `SEPARATION_RADIUS_SQ`,
+  `MAX_SEPARATION_NEIGHBORS`, `MAX_SEPARATION_CHECKS` and the cached `_grid`.
+- `level_controller.enemy_grid` (the parallel dictionary of enemy **positions**) **deleted**. It
+  had exactly one reader, and that reader is gone. `enemy_grid_nodes` is untouched — splash and
+  tower targeting still need to know *which* nodes.
+- `Enemy.SEPARATION_RADIUS` -> `level_controller.GRID_CELL`, same value (32.0). The cross-file
+  single-sourcing existed because both sides derived cell keys from it; only one side does now.
+- New: `_enemy_density` (`PackedFloat32Array`, 52 x 30 = 1560 floats on level_01),
+  `_build_density_grid()`, `_density_coords()`, `get_density_push()`.
+- `_assert_enemy_contract()` gained `get_density_push` and now checks the field is non-empty. It
+  **moved after `generate_flow_field()`** in `_ready()`, because that check is state rather than a
+  declaration, and a guard that fires on every launch teaches people to ignore it.
+
+### THE BENCH LADDER NOW MEANS SOMETHING DIFFERENT — do not mis-subtract
+
+Separation used to be entirely enemy-side, so `V0 − V1` was its whole cost. It is now **split**:
+
+| | measures |
+|---|---|
+| `V0 − V1` | the **gather** only (reading the gradient) |
+| `V4 − V5` | the node grid **and** the density scatter, together |
+
+The scatter lives in the controller's rebuild and is only skipped at `BENCH_NO_GRID`. This is
+written at the constants in `enemy.gd` as well. Mis-reading it is exactly how this document
+produced a wrong cost table twice.
+
+### Honest scoping
+
+**This does not reach 1500 enemies, and it was never going to.** It removes the largest measured
+cost. The remainder is the per-node engine overhead that P-2 and S-1 each proved is not removable
+while every enemy is a Node — which is still **X-\*** (de-nodify + MultiMesh), and which composes
+with this change rather than competing with it.
+
+**The plan's prediction about the grid rebuild was too optimistic, and is corrected here.** It
+claimed density would take "most of the 11.5 µs/enemy". In fact only the *positions* dictionary
+could go; `enemy_grid_nodes`, the group scan, and the one Variant `global_position` read per enemy
+all remain, so the rebuild is roughly flat. The win is the gather, and it is large enough alone.
+
+### Next
+
+1. **Step 1b — density-damped speed** (`speed x (1 - rho/rho_max)`). ~7 extra flops, because the
+   four values needed for `rho` are already read. This is the single thing that would most make the
+   horde read as *water* rather than as a diffusing gas. **It is a difficulty change** (slower
+   enemies spend longer under fire), so it belongs behind a constant defaulted off, enabled and
+   measured on its own.
+2. **Step 2 — Continuum Crowds proper**: congestion feeds back into the flow field, so the horde
+   routes around its own jams. That is the actual "water pulled through a maze" behaviour; D-1
+   bought the performance and a smoother collective push, not the routing.
+3. **X-\* de-nodify + MultiMesh**, still the only rung aimed at what remains.
+4. Optional: `Enemy.bench_skip_density_deposit`, an orthogonal flag on the
+   `bench_skip_position_write` precedent, to isolate the scatter from the node grid in `V4 − V5`.
 
 ### SOLVED (2026-09-07) — the "degradation" was never real: the monitor lags
 

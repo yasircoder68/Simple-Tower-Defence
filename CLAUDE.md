@@ -4,8 +4,10 @@ An incremental tower-defense game in **Godot 4.6**, inspired by *Sir, We Have an
 You defend a keep against overwhelming undead hordes using medieval towers. Failed runs still
 earn permanent upgrades.
 
-**Status: A1 and A2 complete. A3 started — M-1, P-2 and S-1 done; the ladder's tripwire has
-fired, see [a3_plan.md](a3_plan.md)'s opening section before continuing it.** Pathfinding, swarm AI, tower building/removal/moving,
+**Status: A1 and A2 complete. A3 in progress — M-1, P-2, S-1 and now **D-1** are done. D-1
+replaced the pairwise separation scan with a crowd-density field: **−40.7% `us_per_enemy`** at 600
+packed, with no behavioural change. It is A3's first real performance win and the horde now moves
+as a continuum. See [a3_plan.md](a3_plan.md)'s *D-1* section.** Pathfinding, swarm AI, tower building/removal/moving,
 the silver/gold economy, permanent upgrades, round win/lose and `user://` persistence all work.
 A1 added **progressive waves** and the **boulder ability** — five escalating waves with a
 breather, and a hold-to-aim ability on a 3s cooldown that is the only live input.
@@ -51,7 +53,7 @@ rename, and Rain of Arrows. The other two abilities moved to A5; see that file f
 
 **Planned next: [a3_plan.md](a3_plan.md)** — the horde engine, targeting 1500 concurrent enemies,
 bundling the TileMapLayer migration and ending with overlapping waves. **Read its opening section
-before touching the separation code** — it overturns the diagnosis recorded under Performance
+before touching the crowd code** — it overturns the diagnosis recorded under Performance
 below.
 
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
@@ -238,19 +240,46 @@ Enemies are `Area2D` and move themselves by assigning `global_position`. **There
 movement anywhere** — no `move_and_slide`, no rigid bodies. Wall collision is a manual
 `map.is_wall()` point test with per-axis sliding.
 
-### Separation (the perf-critical path)
-`level_controller.gd` rebuilds a **spatial grid** every physics frame: `enemy_grid` maps a 32px cell to a
-plain `Array` of enemy *positions*, with `enemy_grid_nodes` holding the parallel node refs for
-splash damage. Enemies read the 3×3 block around themselves for push-apart.
+### Separation is a DENSITY FIELD, not a neighbour scan (A3's D-1)
 
-Three rules were learned the hard way here — violate any of them and the framerate collapses:
+**Enemies never look at each other.** `enemy.gd::_separation()` and its 3×3 grid scan were deleted
+in D-1. The horde is now a continuum:
 
-1. **Never merge grid cells into one candidate list.** The allocation dwarfs the work and
-   defeats the early-out.
-2. **Never touch a node reference in the inner loop.** `other.global_position` is a Variant
-   dynamic dispatch; that alone cost ~15× at 600 enemies.
-3. **Don't use `PackedVector2Array` for the cells.** It's copy-on-write, so appending to one
-   stored in a Dictionary can copy the whole array per append.
+1. `level_controller._rebuild_enemy_grid()` **scatters** each enemy's mass of 1.0 into
+   `_enemy_density`, a flat `PackedFloat32Array`, using cloud-in-cell (bilinear) weights — 4 writes,
+   O(1), no pairwise anything.
+2. Each enemy **gathers** the local gradient through `map.get_density_push(pos)` — 4 reads — and
+   moves down it.
+
+Measured **−40.7%** `us_per_enemy` at 600 packed, and it is what makes the horde read as fluid
+rather than as N individuals shoving. See a3_plan.md's *D-1*.
+
+Rules that still bite here:
+
+1. **NEVER alias `_enemy_density` into a local, and never let an enemy cache it.**
+   `PackedFloat32Array` is copy-on-write, so a second holder makes the next write deep-copy the
+   whole array — per enemy, per frame. That is why the push is fetched through a **method call**
+   rather than by exposing the array. It is the same trap that made `PackedVector2Array` unusable
+   for the old grid cells.
+2. **Subtract the self-force.** An enemy reads a field containing its own deposit, and the CIC
+   self-contribution is not zero — leaving it in pulls every enemy identically toward a cell
+   corner and **crystallises the horde onto a 32px lattice**. It is removed analytically in
+   `get_density_push()`. The invariant: **one enemy alone on the map must get exactly
+   `Vector2.ZERO`.** Test that first if the crowd ever looks wrong.
+3. **Scatter and gather must share one lattice.** Both go through `_density_coords()`. A half-cell
+   disagreement is a silent constant bias in every push direction.
+4. **`enemy_grid_nodes` still exists and is still needed** — splash damage and tower targeting ask
+   *which* nodes are nearby, which a density field cannot answer. Only the separation path became a
+   field read. Its old twin `enemy_grid` (parallel enemy *positions*) is **deleted**; it had exactly
+   one reader and that reader is gone.
+5. **Never touch a node reference in a per-enemy loop.** `other.global_position` is a Variant
+   dynamic dispatch; that alone cost ~15× at 600 enemies under the old scan, and the rebuild loop
+   still pays one such read per enemy.
+
+The two registry flags map straight across, and both were verified by probe, not by reading code:
+`separation_weight` (ogre 0.15) scales the **gradient response**, so the ogre still ploughs a lane
+while depositing full mass; `ignore_separation` (skeleton) **skips the gather**, so the skeleton
+still slides through a crowd it still shifts. The scatter loop has no type branch at all.
 
 ### Collision layers
 Named in Project Settings. Every `Area2D` sets these explicitly — **if you add a new Area2D,
@@ -270,7 +299,7 @@ vestigial. **A new Area2D still needs its layers set** — the O(n^2) warning be
 anything that rejoins the broadphase.
 
 Enemies have **`monitoring = false`** — they detect nothing. Detection is done *to* them by
-towers and projectiles. Separation comes from the grid, not from overlap queries.
+towers and projectiles. Crowd push comes from the density field, not from overlap queries.
 
 ### Towers
 `archer_tower.tscn` → `archer` (Area2D detector + Timer) → homing `arrow`, single target.
@@ -526,7 +555,7 @@ auto-generated names like `@Button@42`, gettable at runtime via
 ## Conventions
 
 - **Tabs** for indentation (Godot standard).
-- Comments explain *why*, not *what* — especially around the perf-critical separation code.
+- Comments explain *why*, not *what* — especially around the perf-critical density-field code.
 - Type-annotate locals in hot loops. `:=` inference fails on values read out of untyped
   containers, which is a compile error, not a warning.
 - Debug output goes through `print()` gated on an export flag (`level_controller.gd` has `debug_logging`).
@@ -564,9 +593,10 @@ visible in this project's own data. **None of that drift is attributable yet, be
 floor has still never been established** (three identical runs were called for; three have been
 taken, but across three different builds). Establishing it is the first task of a3_plan's M-1.
 
-The cost is isolated to `enemy.gd::_separation()`. Confirmed by probe: at 600 enemies, with
-separation disabled the game runs at **60 FPS** (rendering 600 sprites is free); enabling it
-drops to 2–4.
+The cost *was* isolated to `enemy.gd::_separation()`. Confirmed by probe: at 600 enemies, with
+separation disabled the game ran at **60 FPS** (rendering 600 sprites is free); enabling it
+dropped to 2–4. **That function no longer exists** — D-1 replaced it with a density-field read and
+measured −40.7%. The paragraphs below describe the architecture it replaced.
 
 **Ruled out** — don't spend time re-testing these, they were each tried and measured:
 
@@ -633,7 +663,21 @@ drops to 2–4.
 > skeleton still slides through). Splash queries keep `enemy_grid_nodes` — only the *separation*
 > path becomes a field read.
 
-**Kept for reference — ways to shave the existing scan** (a3_plan's original ladder):
+> [!NOTE]
+> **DONE, AND IT WORKED — A3's D-1, 2026-09-07.** The density-field rewrite shipped. `us_per_enemy`
+> at 600 `packed` went **168.7 -> 100.1, a 40.7% reduction**, measured as three-run means taken
+> back-to-back in one sitting on `BENCH_TAG "M-0b"`. `loose` at 190 went 136.5 -> 112.5 (−17.6%).
+> Two full rounds before and after produced **the same two outcomes in the opposite order**
+> (906/20-lives and 900/17-lives, both WON), with per-wave silver reconciling exactly.
+>
+> **Absolute figures from this session are ~3x the earlier documented ones because the machine was
+> downclocked to 1200 MHz of a 2401 MHz maximum.** Cross-session drift on this hardware is a factor
+> of 3, not the 14% recorded below. **Only ratios travel between sessions.**
+>
+> This does **not** reach 1500 enemies. What remains is per-node engine overhead, which is still
+> X-\* (de-nodify + MultiMesh). See a3_plan.md's *D-1* for the full record.
+
+**Kept for reference — ways to shave the scan D-1 deleted** (a3_plan's original ladder, now history):
 
 1. **Separation** — 25.5 µs/enemy. **But not by flattening the grid to kill hashing:** P-2 did
    exactly that experiment (single-probe `get()` in place of `has()`-then-`[]`) and measured
@@ -742,8 +786,9 @@ Still open, roughly by value:
    in real play (`get_zombies_in_radius: Invalid access ... 'previously freed'`, two wizards on
    a dense cluster). Guarded now in three places: skip queued/invalid on grid rebuild, and
    `is_instance_valid()` in both `get_enemies_in_radius()` and `fire.gd`'s damage loop. Any new
-   consumer of `enemy_grid_nodes` needs the same guard — the positions array (`enemy_grid`)
-   is safe, only the node-reference one is hazardous.
+   consumer of `enemy_grid_nodes` needs the same guard. (The old parallel positions array,
+   `enemy_grid`, was deleted by D-1 — it was safe, but it had only one reader and that reader is
+   gone.)
 1c. **`lives_depleted` is emitted and connected to nothing.** `base_health.gd` declares and emits
    it; nothing listens. The loss is actually driven by an inline `if base_health.lives <= 0` check
    inside `level_controller.on_enemy_escaped()`. **Not a live bug** — `on_enemy_escaped()` is the
@@ -837,7 +882,14 @@ Three things A1 taught that generalise:
    `_check_round_complete()` that real resolutions trigger. It would have reported five waves
    working with round-end completely untested.
 
-**A3 — big battles.** 🚧 Started, then deliberately paused. M-1 (attribution), P-2 (single-probe
+**A3 — big battles.** 🚧 In progress. **D-1 (density-gradient separation) shipped 2026-09-07 and
+is the stage's first measured win: −40.7% `us_per_enemy` at 600 packed, −17.6% at loose, with two
+before/after rounds producing the same two outcomes in the opposite order.** The horde is now a
+continuum — enemies deposit into a density field and read its gradient, and never look at each
+other. Remaining: D-1b (density-damped speed), D-2 (Continuum Crowds proper), X-* (de-nodify +
+MultiMesh), overlapping waves.
+
+Before D-1: M-1 (attribution), P-2 (single-probe
 dicts) and S-1 (retire the enemy physics presence) are all done and committed. **Both P-2 and S-1
 produced no measurable gain, refuting the proposed cause of the two largest costs** — see
 a3_plan.md's *Where A3 actually stands*. The remaining measured cost looks inherent to
@@ -956,6 +1008,17 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   `Enemy.bench_variant` drives the V0–V5 ablation ladder; **`reset()` it or the horde stays
   crippled.** A run is ~4s at 60 FPS but ~45s in the 7 FPS regime, since sampling is
   frame-bounded.
+- **The bench's `frame_ms` is NOT wall-clock time.** It reads exactly 133.33 in every V0 `packed`
+  row ever recorded, which is 8 x 16.67 — Godot's `max_physics_steps_per_frame` clamp. Measured
+  during a D-1 run: 13 real frames in six minutes, i.e. frames ~4s apart, while `frame_ms` reported
+  7.5 fps. So `frame_ms` is decoupled from elapsed time in the overloaded regime, and `phys_ms` is
+  a per-main-iteration total covering up to 8 physics steps rather than a per-tick cost. Ratios are
+  unaffected (both sides clamp identically); **`16600 / us_per_enemy` as "the enemy ceiling" is not
+  yet re-verified against this.**
+- **A slow warm-up counter is not a hang, and not a regression.** A 600-enemy bench run advances
+  `_frames_seen` a handful of frames per minute on this machine. During D-1 that briefly looked
+  like a catastrophic slowdown; reading `Bench._last_phys` (the live monitor value) showed physics
+  was in fact 40% *faster*. **Read `_last_phys` before diagnosing anything from the frame counter.**
 - **A benchmark's lattice must sit on the flow field, not merely off walls.** The first version
   seeded at StartPoint and filtered on `not is_wall()`, which put ~350 of 600 enemies off-map
   where `get_flow_direction()` returns zero — and those take a *more expensive* branch every
