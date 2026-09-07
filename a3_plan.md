@@ -45,6 +45,79 @@ from the plan's optimism.
 
 Current baseline: **~54–57 µs/enemy** at 600 packed. Target for 1500 enemies: **≤ 11.1**.
 
+### SOLVED (2026-09-07) — the "degradation" was never real: the monitor lags
+
+**`Performance.TIME_PHYSICS_PROCESS` updates far more slowly than once per frame, and the harness
+samples it once per frame.** Every run's early samples therefore carry the *previous* run's value.
+
+Caught by dumping `_phys_samples` from a V5 run taken immediately after a V0 run:
+
+```
+46.229  x 33 samples    <- V0's value, frozen
+3.76    x ~120 samples  <- V5's actual value
+4.214   x ~19 samples
+```
+
+Thirty-three of 180 samples are a frozen 46.229 — V0's leftover reading, held through V5's entire
+60-frame warm-up **and** 33 sampling frames before the monitor finally updated. That is 93+ frames
+of stale data. In an earlier V5-after-V0 run more than half the samples were contaminated and the
+reported p50 came out at **48.65 ms while the run was doing essentially no work** — higher than V0
+itself.
+
+**This explains the whole "within-process degradation" story, and inverts its conclusion:**
+
+| Run | What precedes it | Residue | Effect on p50 |
+|---|---|---|---|
+| 1st in a process | an idle game | **low** | biased **DOWN** |
+| 2nd, 3rd... | the previous heavy run | **high** | biased **UP** |
+
+So the observed 67.5 → 98.3 → 94.3 was not the machine getting slower. It was **run 1 being
+under-reported** because an idle game's cheap physics frames bled into its warm-up, and later runs
+being over-reported by the preceding run's expensive ones.
+
+> **The documented protocol was exactly backwards.** "Only the first run after a game start is
+> trustworthy" made the *most* contaminated run the reference. It also explains why idling never
+> "recovered" it (idle frames are cheap, so idling only reloads the low residue) and why S-1
+> emptying the broadphase changed nothing (there was no physics effect to remove).
+
+**The contamination is proportional to how fast the run is**, because a fixed number of stale
+frames is a larger share of a short run:
+
+| Variant | run length | stale share |
+|---|---|---|
+| V0 | ~35 s | small |
+| V1 | ~10 s | moderate |
+| V4 | ~4 s | large |
+| V5 | ~2 s | **very large** |
+
+**That is why V4 and V5 looked "flat" back-to-back** — they are so short that their samples are
+dominated by residue either way, so consecutive runs simply agree with each other. It was never
+evidence that the light variants behave differently.
+
+### What this invalidates
+
+- **The ±8% "noise floor" is mostly this artefact.** The real instrument, once fixed, is likely far
+  more precise — which may put the rungs that predict 10–20% back within reach. **The tripwire
+  should not be treated as final until the ladder is re-measured on a fixed harness.**
+- **The M-1 attribution table is distorted and must be re-measured.** Every variant was taken as
+  the first run of a fresh process, i.e. every one biased **down** toward idle — and biased by a
+  *different amount*, since the stale share scales inversely with run length. The light variants
+  (V4, V5) are pulled hardest, so **the subtractions that produced the cost breakdown are not
+  trustworthy in detail**, even though the broad shape (separation dominant) is probably right.
+- **P-2's and S-1's "no measurable gain" verdicts are weakened but probably survive**, because both
+  compared before/after runs of similar duration under the same protocol, so the bias largely
+  cancels. They should be re-confirmed cheaply once the harness is fixed rather than re-litigated.
+
+### The fix
+
+Sample the monitor **by change, not by frame**: record a value only when it differs from the
+previous reading, and keep sampling until N *distinct* readings have accumulated. That turns 180
+frame-reads into N genuine monitor updates, and makes the sample count mean what the harness
+already claims it means. A warm-up should likewise be defined as "discard until the value has
+changed at least once", not as a fixed frame count.
+
+---
+
 ### Problem 1 — the instrument is far noisier than the effects being measured
 
 Three independent variance layers, all discovered during M-1, none of them in the original plan:

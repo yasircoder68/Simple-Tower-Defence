@@ -632,23 +632,34 @@ that 1500 enemies would need — so the non-separation path needs a 3.6× reduct
 the ladder does not get there, the horde leaves GDScript (MultiMesh + a compute-style update, or
 GDExtension).
 
-> [!WARNING]
-> **The bench degrades within a process: only the FIRST run after a game start is trustworthy.**
-> Three identical back-to-back runs measured 67.5 → 98.3 → 94.3 µs/enemy, and an idle gap did not
-> recover it (so it is not thermal; node count is constant and the lattice is frozen, so it is
-> neither leakage nor drift). First runs across separate processes cluster at 62.6 / 66.7 / 67.5 —
-> **a ±4% noise floor, which is perfectly usable.**
+> [!CAUTION]
+> **THE BENCH HAS A MEASUREMENT BUG. Every number in the table above is suspect until it is fixed
+> and the ladder re-measured.** Found 2026-09-07; see a3_plan.md's *SOLVED — the "degradation" was
+> never real*.
 >
-> **Restart the game between every measurement.** Running an ablation ladder back-to-back would
-> confound the degradation with the variant and produce a confidently *inverted* table — the
-> least-work variant, measured last, would look slowest.
+> **`Performance.TIME_PHYSICS_PROCESS` updates far more slowly than once per frame, and
+> `bench.gd` samples it once per frame.** Every run's early samples therefore carry the
+> **previous** run's value. Proven by dumping `_phys_samples` from a V5 run started right after a
+> V0 run: the first **33 of 180 samples were a frozen 46.229** (V0's figure) before dropping to
+> V5's real 3.76 — 93+ frames of stale data, counting the warm-up.
 >
-> **±4% was optimistic.** A second triple (V0-nw: 58.3 / 50.2 / 51.7) spread 15%. Treat the
-> first-run floor as **±8%**, and take three runs for any change predicted below ~15%.
+> **This means the previously documented "+45% within-process degradation" was never real**, and
+> the protocol built on it was backwards:
 >
-> **There is also ~14% session-level drift.** Two V0 triples on effectively identical code, hours
-> apart, meaned 65.6 and 56.3. **Only compare runs from the same sitting** — re-measure the
-> "before" immediately before every change, however recently you measured it.
+> | Run | Preceded by | Residue | Bias |
+> |---|---|---|---|
+> | 1st in a process | an idle game | low | reads **too LOW** |
+> | 2nd, 3rd... | the previous heavy run | high | reads **too HIGH** |
+>
+> "Only the first run is trustworthy" made the *most* contaminated run the reference. It also
+> explains why idling never recovered it, and why S-1 emptying the broadphase changed nothing.
+>
+> **Contamination scales inversely with run length** (a fixed number of stale frames is a bigger
+> share of a short run), so the light variants V4/V5 are distorted hardest — which is why they
+> looked deceptively "flat" back to back.
+>
+> **Until the harness is fixed:** treat `us_per_enemy` as indicative only, never compare runs of
+> different duration, and do not start any optimisation on the strength of these numbers.
 
 **Do not claim the perf problem is fixed without a measured 600-enemy screenshot** — and, from A3
 onward, a `us_per_enemy` figure from the bench harness. FPS alone is vsync-quantised: anything from
