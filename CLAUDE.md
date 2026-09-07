@@ -658,8 +658,19 @@ GDExtension).
 > share of a short run), so the light variants V4/V5 are distorted hardest — which is why they
 > looked deceptively "flat" back to back.
 >
-> **Until the harness is fixed:** treat `us_per_enemy` as indicative only, never compare runs of
-> different duration, and do not start any optimisation on the strength of these numbers.
+> **FIXED 2026-09-07, `BENCH_TAG` now `M-0b`.** Sampling counts **distinct monitor updates, not
+> frames**; warm-up waits for observed changes rather than a frame count. Self-test: a V5 run
+> straight after a V0 run read **48.65 / 81.1** before the fix and **5.2** after, against a
+> fresh-process V5 of 5.1. Six V0 runs back-to-back went from `67.5 / 98.3 / 94.3` (+45%,
+> monotonic) to `60.2 / 58.3 / 54.4 / 53.3 / 58.8 / 50.5` (no trend).
+>
+> **The table above still needs re-deriving** — every figure in it was produced by the buggy
+> sampler, and the bias was worse for short runs, so the ablation subtractions are distorted.
+>
+> **New protocol.** Back-to-back runs are fine; **no restart per measurement**. Take three runs and
+> use the mean: ~±7% on one run, ~±4% on a three-run mean, and now *unbiased* — the error averages
+> out instead of depending on whatever ran before. **Rows tagged `M-0` must never be compared
+> against `M-0b` rows.**
 
 **Do not claim the perf problem is fixed without a measured 600-enemy screenshot** — and, from A3
 onward, a `us_per_enemy` figure from the bench harness. FPS alone is vsync-quantised: anything from

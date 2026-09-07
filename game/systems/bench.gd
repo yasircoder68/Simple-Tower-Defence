@@ -34,10 +34,36 @@ const GOBLIN_SCENE := preload("res://entities/enemies/goblin/goblin.tscn")
 
 ## Bumped whenever the harness itself changes, so a table row can never be
 ## silently compared against numbers produced by different code.
-const BENCH_TAG := "M-0"
+const BENCH_TAG := "M-0b"
 
+## THE MONITOR LAGS. Performance.TIME_PHYSICS_PROCESS updates far more slowly
+## than once per frame - measured at roughly one update per 0.4-0.5s - while
+## this harness used to sample it once per frame. Every run's early samples
+## therefore carried the PREVIOUS run's value.
+##
+## Caught by dumping _phys_samples from a V5 run started right after a V0 run:
+## the first 33 of 180 samples were a frozen 46.229 (V0's figure) before
+## dropping to V5's real 3.76 - 93+ frames of stale data counting warm-up.
+##
+## That artefact produced the entire "the bench degrades +45% within a process"
+## story, and inverted its conclusion: run 1 follows an IDLE game so it reads
+## too LOW, runs 2+ follow a heavy run so they read too HIGH. It also made short
+## variants (V5 ~2s) far more contaminated than long ones (V0 ~35s), because a
+## fixed number of stale frames is a bigger share of a short run.
+##
+## So sampling is counted in DISTINCT MONITOR UPDATES, never in frames. A fixed
+## frame count cannot guarantee the previous run's value has been flushed; only
+## observing the value CHANGE can.
 const WARMUP_FRAMES := 60
-const SAMPLE_FRAMES := 180
+## Distinct updates to discard before sampling begins. The first observed change
+## is the residue clearing, so discard a couple more after it.
+const WARMUP_UPDATES := 3
+## Sample size, in distinct monitor updates. Every variant now takes roughly the
+## same wall-clock time regardless of how fast it runs, which is what removes the
+## duration-dependent bias - and V0 actually gets FASTER than the old 180 frames.
+const SAMPLE_UPDATES := 40
+## Hard stop, so a monitor that stops updating cannot hang a run forever.
+const MAX_SAMPLE_FRAMES := 6000
 
 ## Lattice spacings. `loose` is the PRIMARY config: most enemies have zero
 ## in-radius neighbours, which is the case the per-enemy scaffolding analysis
@@ -91,6 +117,10 @@ var history: Array = []
 var _frame_samples: Array = []
 var _phys_samples: Array = []
 var _frames_seen: int = 0
+## Last monitor reading, so a repeat can be told from a fresh update. -1 marks
+## "nothing read yet", which no real timing can collide with.
+var _last_phys: float = -1.0
+var _warmup_updates: int = 0
 
 
 func setup(map_ref: Node2D) -> void:
@@ -137,6 +167,8 @@ func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_
 	_frame_samples.clear()
 	_phys_samples.clear()
 	_frames_seen = 0
+	_last_phys = -1.0
+	_warmup_updates = 0
 	phase = Phase.WARMUP
 	return true
 
@@ -166,20 +198,43 @@ func _process(delta: float) -> void:
 
 	_frames_seen += 1
 
+	var phys: float = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	# A genuine update, not the same stale value read again. Two consecutive
+	# updates that happen to be bit-identical are dropped; that costs a few
+	# extra frames and biases nothing.
+	var changed: bool = not is_equal_approx(phys, _last_phys)
+	if changed:
+		_last_phys = phys
+
 	# Warm-up is not superstition: it discards scene instantiation, every
 	# enemy's _ready(), texture upload, and the physics server registering n
 	# areas — all of which land in the first frames and none of which is the
 	# steady-state cost being measured.
+	#
+	# It ALSO has to outlast the monitor's lag, which a frame count cannot
+	# promise — hence the second condition. Without it the previous run's value
+	# bleeds straight into this run's samples.
 	if phase == Phase.WARMUP:
-		if _frames_seen >= WARMUP_FRAMES:
+		if changed:
+			_warmup_updates += 1
+		if _frames_seen >= WARMUP_FRAMES and _warmup_updates >= WARMUP_UPDATES:
 			phase = Phase.SAMPLING
 			_frames_seen = 0
 		return
 
+	# delta IS per-frame, so frame samples stay per-frame. Only the monitor
+	# needs change-gating, which is why the two arrays now differ in length.
 	_frame_samples.append(delta * 1000.0)
-	_phys_samples.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	if changed:
+		_phys_samples.append(phys)
 
-	if _frames_seen >= SAMPLE_FRAMES:
+	if _phys_samples.size() >= SAMPLE_UPDATES:
+		_finish()
+	elif _frames_seen >= MAX_SAMPLE_FRAMES:
+		push_error(
+			"bench: gave up after %d frames with only %d/%d monitor updates — TIME_PHYSICS_PROCESS may have stopped updating. Result is UNRELIABLE."
+			% [_frames_seen, _phys_samples.size(), SAMPLE_UPDATES]
+		)
 		_finish()
 
 

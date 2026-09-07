@@ -108,13 +108,56 @@ evidence that the light variants behave differently.
   compared before/after runs of similar duration under the same protocol, so the bias largely
   cancels. They should be re-confirmed cheaply once the harness is fixed rather than re-litigated.
 
-### The fix
+### The fix — shipped and verified, `BENCH_TAG` now `M-0b`
 
-Sample the monitor **by change, not by frame**: record a value only when it differs from the
-previous reading, and keep sampling until N *distinct* readings have accumulated. That turns 180
-frame-reads into N genuine monitor updates, and makes the sample count mean what the harness
-already claims it means. A warm-up should likewise be defined as "discard until the value has
-changed at least once", not as a fixed frame count.
+Sampling is counted in **distinct monitor updates, never in frames**: a value is recorded only when
+it differs from the previous reading, and a run ends after `SAMPLE_UPDATES` (40) genuine updates.
+Warm-up requires both `WARMUP_FRAMES` (60) **and** `WARMUP_UPDATES` (3) observed changes, because a
+frame count cannot promise the previous run's value has flushed. `MAX_SAMPLE_FRAMES` (6000) stops a
+run that would otherwise hang if the monitor stalled, and `push_error`s rather than reporting a
+number it cannot stand behind.
+
+**`BENCH_TAG` bumped `M-0` -> `M-0b`.** Every row above tagged `M-0` was produced by the buggy
+sampler and must never be compared against an `M-0b` row.
+
+**Self-test — the exact experiment that exposed the bug:**
+
+| V5 run straight after a V0 run | reading |
+|---|---|
+| Old harness | **48.65**, then **81.1** (p95 35.81) |
+| **Fixed harness** | **5.2** (p95 4.84) |
+| Fresh-process V5, for reference | 5.1 / 5.3 |
+
+V5-after-V0 is now indistinguishable from a fresh V5. The residue is gone.
+
+**And the "degradation" is gone with it.** Six V0 runs back-to-back in one process:
+
+| Harness | runs | shape |
+|---|---|---|
+| Old | 67.5 / 98.3 / 94.3 | **+45%, monotonic** |
+| **Fixed** | 60.2 / 58.3 / 54.4 / 53.3 / 58.8 / 50.5 | **no trend, bounces** |
+
+### What the instrument is actually worth now
+
+Mean **55.9**, spread 50.5-60.2, standard deviation ~3.7 -> **about ±7% on a single run, ~±4% on a
+three-run mean.**
+
+**The raw spread did not shrink much. That is not the win.** The win is that the error is now
+*random rather than systematic*: it averages out over repeats, it does not depend on what ran
+before, and it cannot invert an ablation table. Three practical consequences:
+
+- **Back-to-back runs are valid.** No game restart per measurement, which roughly halves the cost
+  of every future measurement session.
+- **The old protocol is retired.** "Only the first run is trustworthy" was an artefact of the bug
+  and is now simply wrong.
+- **Rungs predicting 10%+ are measurable again** on a three-run mean. P-3's 11.5 µs/enemy is ~20%
+  of 55.9; P-1's ~9 is ~16%. **The tripwire fired against a broken instrument, so the ladder is
+  back in play** — but only after the attribution is re-derived, because the numbers those targets
+  come from were themselves produced by the buggy sampler.
+
+**Next measurement work, in order:** re-run the V0-V5 ladder on `M-0b` (one variant per run,
+back-to-back is fine now, three runs each) to rebuild the cost table; then re-confirm P-2 and S-1
+cheaply, since both verdicts rest on `M-0` numbers.
 
 ---
 
