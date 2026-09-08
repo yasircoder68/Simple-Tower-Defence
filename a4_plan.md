@@ -1,7 +1,10 @@
 # A4 — "MVP UI" — Implementation Work Order
 
-**Status: IN PROGRESS. U-0 (theme), U-1 (pause) and U-2 (HUD) SHIPPED 2026-09-08.
-U-3 (result screen) is next.**
+**Status: IN PROGRESS. U-0 (theme), U-1 (pause), U-2 (HUD), U-3 (result screen) and U-4 (main
+menu) SHIPPED 2026-09-08. U-5 (upgrade screen) is next — after which only U-6 remains.**
+
+**The game now boots to a main menu and has a complete loop:** menu -> play -> pause -> menu,
+and menu -> play -> result -> menu.
 
 **This is the stage that unblocks shipping.** A1 is built and exported and has never been put in
 front of anyone, because the game opens straight into a level with no main menu, no pause, and an
@@ -313,17 +316,116 @@ leaving two things listening to the same lifecycle.
   repopulates it to `Wave 1/5`.
 - **Zero errors** in `debugger_get_log` throughout.
 
-### U-3 — Result screen · ~2h
+### U-3 — Result screen · ✅ **SHIPPED 2026-09-08**
 
-- Win/lose, waves survived, kills, gold awarded — and **explicitly "silver kept: N"**.
-- Replaces `round_ui`'s result panel; `round_ui`'s copy hidden, not deleted.
+`ui/result_screen/result_screen.tscn` + `.gd` — a centred card driven entirely by
+`round_ended(won, gold_awarded, silver_earned)`. Headline (`Victory` in `SUCCESS` / `Defeat` in
+`BLOOD`, both theme variations), waves survived, enemies killed, silver earned, gold, and a
+context-sensitive button (`Play Again` / **`Upgrade & Retry`**).
 
-### U-4 — Main menu + scene flow · ~2h
+#### The line this whole stage exists for
 
-- New main scene: **Begin Defense / Upgrades / Quit**.
-- `change_scene_to_file` only — see finding 1.
-- Wires U-1's Quit-to-menu.
-- `run/main_scene` changes here; so does the `game_start` gotcha.
+**A fresh save loses level_01 at wave 4 by explicit design.** So a new player's first game is a
+loss, and the old panel said *"Round Lost / Earned: 422 silver"* — where "earned" reads as
+*earned and then lost along with the round*, which is exactly backwards. The silver is banked
+permanently and is what buys the win.
+
+On a loss, and only on a loss, the screen now says:
+
+> **You keep every silver you earned.**
+> **Spend it on upgrades, then try again.**
+
+A player who quits at that screen quits because the interface lied to them about the game's
+central mechanic. This is not copywriting polish — it is the difference between a roguelite loop
+and an apparent dead end, and it is the single most load-bearing change in A4.
+
+#### One thing deliberately not inferred
+
+`gold_awarded` is the **actual amount paid** — 0 on a replay, because `PlayerData.award_level_gold`
+enforces gold-once. The screen therefore distinguishes *"Gold 12"* from *"Gold — already claimed"*
+rather than deriving "gold was paid" from `won == true`, which CLAUDE.md warns against explicitly.
+Verified live: a win on the already-cleared map1 correctly showed "already claimed".
+
+#### A round-scoped kill counter
+
+`kills_this_round` was added beside `silver_earned_this_round` — incremented in
+`on_enemy_killed()`, reset on the same line, never written to `PlayerData`. Escapes are
+deliberately not counted: it is a *kill* count, and the lives readout already says what got
+through.
+
+#### Verified
+
+- **Both variants rendered and checked live**, driven through `_end_round()` — the same function
+  the real loss and win paths call.
+- **A full real round: 906 silver (the exact authored maximum), 408 kills, 20/20 lives, won.**
+  408 is every enemy spawned (32+48+72+104+152), so **the new kill counter reconciles against the
+  spawn table exactly**, and the per-wave silver was exact at every boundary (64 / 96 / 154 / 238
+  / 354). That run mattered because U-3 put a counter in `on_enemy_killed()`, which is in the hot
+  path of every kill.
+- Play Again returns to `PRE_ROUND`, hides the screen, and resets the HUD to `Wave -`, `20/20`.
+- **Zero errors** in `debugger_get_log`.
+
+**No scrim, deliberately.** The pause screen dims the game because it is modal; this one does not,
+because the player's next action after a loss lives behind it and a scrim would imply the game had
+stopped. Worth revisiting at U-5 when the upgrade screen exists.
+
+### U-4 — Main menu + scene flow · ✅ **SHIPPED 2026-09-08**
+
+`ui/main_menu/main_menu.tscn` + `.gd`, and `run/main_scene` now points at it. Title, the player's
+**persistent silver and gold**, Begin Defense, Quit.
+
+Showing the currencies on the menu is the cheapest way to make meta-progression visible before the
+player has played anything — a returning player sees immediately that their last run left them
+better off, which is the hook the whole economy rests on.
+
+#### Finding 1 confirmed by measurement: `/root/map1` survives
+
+After Begin Defense, probed live:
+
+```
+map1_exists=true | current_scene=map1 | menu_gone=true | hud=true
+```
+
+`change_scene_to_file()` frees the menu and makes the level a **direct child of root**, so the
+level's root node stays `map1` at `/root/map1`. **Every gotcha, `scope_path` and MCP verification
+snippet in CLAUDE.md keeps working untouched** — the predicted "expect a docs pass" never
+materialised, because scenes are replaced rather than nested.
+
+**That is now an architectural constraint, recorded at the top of `main_menu.gd`: never add the
+menu as a resident overlay above the level.** It would push the level down a level and invalidate
+the whole verification toolkit for a purely cosmetic gain.
+
+#### Two deviations from the plan
+
+**No Upgrades button yet.** The plan listed *Begin Defense / Upgrades / Quit*, but the upgrade
+screen is U-5. A disabled button would be dead UI on the first screen a stranger sees, so U-5 adds
+the screen and its entry point together.
+
+**The result screen gained a Main Menu button, which the plan did not call for.** It had to:
+pausing is disarmed the moment a round ends (`pause_menu.setup(false)` in `_end_round`), so Escape
+does nothing on the result screen — **without it, Play Again would be the only way out of a level,
+forever, and the menu would be reachable only at launch.** Caught by walking the loop rather than
+by reading it.
+
+#### One trap, guarded
+
+`resume()` runs **before** `menu_requested` is emitted. `change_scene_to_file` frees the tree but
+`get_tree().paused` is tree-wide state that would **survive into the menu** — producing a main
+menu whose buttons do nothing. Verified: `paused=false` immediately after returning, and the menu
+was interactive (a second Begin Defense worked).
+
+Both screens route through one `_on_menu_requested()` on the controller rather than each calling
+`change_scene_to_file` themselves.
+
+#### Verified
+
+- **The full loop, driven through real button clicks:** menu -> level -> pause -> Quit to Menu ->
+  menu -> level -> round end -> result -> Main Menu -> menu.
+- `PlayerData` survives every transition (silver 28823 throughout). Nothing needed saving at the
+  transition: `_end_round()` already flushes, and everything else is round-scoped by design.
+- **`game_start` with the explicit level path still lands in a playable level** at `/root/map1` —
+  the documented workaround for the changed boot scene, tested rather than assumed.
+- **Zero errors** in `debugger_get_log`.
 
 ### U-5 — Upgrade screen · ~3h
 

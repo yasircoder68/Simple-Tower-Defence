@@ -62,7 +62,8 @@ func setup(map_ref: Node2D, suppress_status: bool = false) -> void:
 		_build_status_labels()
 		_build_breather_panel()
 	_build_upgrade_panel()
-	_build_result_panel()
+	if not _status_suppressed:
+		_build_result_panel()
 
 	_refresh_status()
 	_refresh_upgrade_buttons()
@@ -189,7 +190,7 @@ func _build_result_panel() -> void:
 	result_panel.offset_right = 150
 	result_panel.offset_top = -60
 	result_panel.offset_bottom = 60
-	result_panel.hide()
+	_hide_result()
 	add_child(result_panel)
 
 	var vbox := VBoxContainer.new()
@@ -289,7 +290,7 @@ func _on_skip_breather_pressed() -> void:
 
 
 func _on_round_started() -> void:
-	result_panel.hide()
+	_hide_result()
 	# Cleared here, then repopulated microseconds later by wave_started —
 	# _start_round() emits round_started before wave_manager.begin().
 	_wave_num = 0
@@ -299,6 +300,11 @@ func _on_round_started() -> void:
 
 
 func _on_round_ended(won: bool, gold_awarded: int, silver_earned: int) -> void:
+	# ui/result_screen/ owns this when suppressed, and the panel was never built.
+	if _status_suppressed:
+		_refresh_upgrade_buttons()
+		return
+
 	var headline := ""
 	if won and gold_awarded > 0:
 		headline = "Round Won!"
@@ -328,7 +334,7 @@ func _on_play_again_pressed() -> void:
 	# signal fires from _start_round() (the Start button), not from
 	# start_new_round() (this button), so it wouldn't fire until the player
 	# presses Start again, leaving the result panel stuck on screen.
-	result_panel.hide()
+	_hide_result()
 	_hide_breather()
 	_wave_num = 0
 	_wave_total = 0
@@ -337,6 +343,12 @@ func _on_play_again_pressed() -> void:
 	# the lives label back to full here.
 	_refresh_status()
 	_refresh_upgrade_buttons() # back in PRE_ROUND, so unlock them
+
+
+## Null-safe: the result panel is not built when the result screen owns it.
+func _hide_result() -> void:
+	if result_panel != null:
+		result_panel.hide()
 
 
 ## Null-safe: the breather panel is not built when the HUD owns it.

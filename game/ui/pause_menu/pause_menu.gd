@@ -34,11 +34,15 @@ const Palette := preload("res://ui/palette.gd")
 ## discipline as every other manager here.
 signal resume_requested
 signal restart_requested
+## Back to the main menu — a scene REPLACEMENT, handled by the level controller.
+signal menu_requested
+## All the way out of the game.
 signal quit_requested
 
 @onready var scrim: ColorRect = $Scrim
 @onready var resume_button: Button = $Scrim/Center/Card/Rows/ResumeButton
 @onready var restart_button: Button = $Scrim/Center/Card/Rows/RestartButton
+@onready var menu_button: Button = $Scrim/Center/Card/Rows/MenuButton
 @onready var quit_button: Button = $Scrim/Center/Card/Rows/QuitButton
 
 ## Whether pausing is currently allowed. False outside a round: pausing a build
@@ -54,6 +58,7 @@ func _ready() -> void:
 
 	resume_button.pressed.connect(_on_resume_pressed)
 	restart_button.pressed.connect(_on_restart_pressed)
+	menu_button.pressed.connect(_on_menu_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
 
 	hide()
@@ -111,6 +116,14 @@ func _on_resume_pressed() -> void:
 func _on_restart_pressed() -> void:
 	resume()
 	restart_requested.emit()
+
+
+## Unpaused before emitting, for the same reason restart is: change_scene_to_file
+## frees this tree, and leaving get_tree().paused true would carry the pause
+## into the NEXT scene — a main menu whose buttons do nothing.
+func _on_menu_pressed() -> void:
+	resume()
+	menu_requested.emit()
 
 
 func _on_quit_pressed() -> void:

@@ -95,7 +95,11 @@ shipped, because the game has no main menu, no pause, and an upgrade panel bolte
 screen. `alpha_plan.md` gained a dedicated stage — **A4 — MVP UI** — to fix exactly that, which
 renumbered the old A4/A5 to A5/A6.
 
-**A4 is planned in full: [a4_plan.md](a4_plan.md)** (2026-09-08), and it is **next**. Three things
+**A4 is in progress: [a4_plan.md](a4_plan.md).** U-0 (theme), U-1 (pause), U-2 (HUD), U-3 (result
+screen) and U-4 (main menu) shipped 2026-09-08; U-5 (upgrade screen) is next, then U-6 deletes
+`round_ui`. **The game boots to a menu and the loop closes:** menu -> play -> pause/result -> menu. **The losing result screen now tells
+the player their silver was kept** — the single most load-bearing change in the stage, because a
+fresh save loses at wave 4 by design and the old screen read as though the progress went with it. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
 rather than nested; pause needs **one** `PROCESS_MODE_ALWAYS` exception rather than four
 per-system rules; and A4 deliberately takes only `ui_plan`'s UI-0 + a trimmed UI-1 + UI-4, leaving
@@ -213,7 +217,8 @@ zombie game prototype 1/
     │                          wave_manager.gd, ability_manager.gd, enemy_types.gd,
     │                          bench.gd (dev-only horde benchmark)
     ├── ui/                  ← palette.gd + build_theme.gd -> game_theme.tres (A4's U-0),
-    │                          pause_menu/ (U-1), hud/ (U-2), build_sidebar/,
+    │                          pause_menu/ (U-1), hud/ (U-2), result_screen/ (U-3),
+    │                          main_menu/ (U-4, THE BOOT SCENE), build_sidebar/,
     │                          ghost_tower/, aim_marker/, ability_bar/,
     │                          round_ui.gd (throwaway, dies at U-6)
     ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
@@ -1078,6 +1083,19 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 
 ## Gotchas
 
+- **THE GAME NOW BOOTS TO A MENU, NOT A LEVEL.** `run/main_scene` is
+  `res://ui/main_menu/main_menu.tscn` (A4's U-4), so `game_start` with `scene_path: "main"` lands
+  on the menu with **no `/root/map1`**. Two ways through it, both verified: `game_start` with
+  `scene_path: "res://levels/level_01.tscn"` to go straight to a playable level, or `click_node`
+  on `/root/MainMenu/Backdrop/Center/Card/Rows/BeginButton`.
+- **`/root/map1` STILL RESOLVES once a level is loaded, and that is deliberate.** Scene transitions
+  use `change_scene_to_file()`, which frees the old scene and makes the new one a **direct child of
+  root** — so the level's root node stays `map1` at `/root/map1` and every path in this document
+  keeps working. **Never make the menu a resident overlay above the level:** it would push the
+  level down a level and invalidate every `scope_path` and verification snippet here.
+- **`get_tree().paused` is tree-wide and SURVIVES a scene change.** Always unpause before
+  `change_scene_to_file()`, or the next scene loads paused with dead buttons. Both the pause screen
+  and the result screen call `resume()` before emitting.
 - **The scene file is `levels/level_01.tscn` but its ROOT NODE is still named `map1`** — renaming
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the

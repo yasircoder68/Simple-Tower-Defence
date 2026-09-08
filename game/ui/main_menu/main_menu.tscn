@@ -1,0 +1,53 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/main_menu/main_menu.gd" id="1_menu"]
+
+[node name="MainMenu" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.078, 0.067, 0.059, 1)
+
+[node name="Center" type="CenterContainer" parent="Backdrop"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="Backdrop/Center"]
+custom_minimum_size = Vector2(340, 0)
+layout_mode = 2
+
+[node name="Rows" type="VBoxContainer" parent="Backdrop/Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Backdrop/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"Display"
+text = "Medieval
+Horde Defense"
+horizontal_alignment = 1
+
+[node name="Currency" type="Label" parent="Backdrop/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Silver 0     Gold 0"
+horizontal_alignment = 1
+
+[node name="BeginButton" type="Button" parent="Backdrop/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"ButtonPrimary"
+text = "Begin Defense"
+
+[node name="QuitButton" type="Button" parent="Backdrop/Center/Card/Rows"]
+layout_mode = 2
+text = "Quit"

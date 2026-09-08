@@ -1,0 +1,55 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/result_screen/result_screen.gd" id="1_result"]
+
+[node name="ResultScreen" type="CanvasLayer"]
+layer = 50
+script = ExtResource("1_result")
+
+[node name="Root" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Center" type="CenterContainer" parent="Root"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="Root/Center"]
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 2
+
+[node name="Rows" type="VBoxContainer" parent="Root/Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Headline" type="Label" parent="Root/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"ResultWon"
+text = "Victory"
+horizontal_alignment = 1
+
+[node name="Stats" type="Label" parent="Root/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Waves survived   5 / 5"
+horizontal_alignment = 1
+
+[node name="Reassurance" type="Label" parent="Root/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"Success"
+text = "You keep every silver you earned."
+horizontal_alignment = 1
+
+[node name="PlayAgainButton" type="Button" parent="Root/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"ButtonPrimary"
+text = "Play Again"
+
+[node name="MenuButton" type="Button" parent="Root/Center/Card/Rows"]
+layout_mode = 2
+text = "Main Menu"

@@ -71,6 +71,11 @@ const DENSITY_MAX_PUSH := 2.4
 
 @export var debug_logging: bool = false
 
+## Where "quit to menu" goes. A const rather than an @export: every level
+## returns to the same menu, and a per-level override would only ever be a way
+## to get it wrong.
+const MAIN_MENU_PATH := "res://ui/main_menu/main_menu.tscn"
+
 @onready var tile_map: TileMap = $my_tiles
 @onready var start_point: Marker2D = $StartPoint
 @onready var end_point: Marker2D = $EndPoint
@@ -166,6 +171,11 @@ var enemies_to_resolve: int = 0
 ## Silver earned in the current round only — reported on the result screen.
 ## Round-scoped; the running total lives in PlayerData.silver.
 var silver_earned_this_round: int = 0
+## Enemies killed this round, for the result screen. Round-scoped like the
+## silver haul beside it, and reset on the same line — never written to
+## PlayerData. Escapes are deliberately not counted: this is a kill count, and
+## the lives readout already says what got through.
+var kills_this_round: int = 0
 
 var round_ui: CanvasLayer = null
 ## The pause screen. Round-scoped like every other manager here.
@@ -173,6 +183,9 @@ var pause_menu: CanvasLayer = null
 ## The in-round HUD (A4's U-2). Owns the status readout and the breather that
 ## round_ui used to carry.
 var hud: CanvasLayer = null
+## The end-of-round screen (A4's U-3). Owns the win/lose result round_ui used
+## to carry, and the line telling a losing player their silver was kept.
+var result_screen: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -223,11 +236,16 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup(self)
 
+	result_screen = preload("res://ui/result_screen/result_screen.tscn").instantiate()
+	add_child(result_screen)
+	result_screen.setup(self)
+	result_screen.menu_requested.connect(_on_menu_requested)
+
 	round_ui = preload("res://ui/round_ui.gd").new()
 	round_ui.name = "RoundUI"
 	add_child(round_ui)
-	# The HUD owns the status readout and the breather now; round_ui keeps only
-	# the result and upgrade panels until U-3 and U-5 replace those too.
+	# The HUD and the result screen own everything but the upgrade panel now;
+	# round_ui keeps only that, until U-5 replaces it and U-6 deletes the file.
 	round_ui.setup(self, true)
 
 	# Added LAST so it sits below round_ui in the tree and therefore ABOVE it in
@@ -242,6 +260,7 @@ func _ready() -> void:
 	add_child(pause_menu)
 	pause_menu.resume_requested.connect(_on_pause_resumed)
 	pause_menu.restart_requested.connect(_on_pause_restart)
+	pause_menu.menu_requested.connect(_on_menu_requested)
 	pause_menu.quit_requested.connect(_on_pause_quit)
 
 
@@ -495,6 +514,7 @@ func _start_round() -> void:
 	# wave, topping it up at each wave boundary so this controller's existing
 	# decrement-and-check path still decides when the round is won.
 	silver_earned_this_round = 0
+	kills_this_round = 0
 
 	# Towers persist between rounds now, so any upgrade bought since the last
 	# round hasn't reached them yet — they resolved their stats when they were
@@ -531,11 +551,21 @@ func _on_pause_restart() -> void:
 	start_new_round()
 
 
+## The ONE place that knows how to get back to the menu — the pause screen and
+## the result screen both route here rather than each calling change_scene.
+##
+## SCENE REPLACEMENT, never a resident overlay: change_scene_to_file frees this
+## level and makes the menu a direct child of root, which is what keeps the next
+## level's root node at /root/map1. See ui/main_menu/main_menu.gd.
+##
+## Nothing needs saving first. PlayerData flushes at _end_round() and again from
+## its own _notification() on tree exit, and everything else here is round-scoped
+## by design — see CLAUDE.md's state-boundary table.
+func _on_menu_requested() -> void:
+	get_tree().change_scene_to_file(MAIN_MENU_PATH)
+
+
 func _on_pause_quit() -> void:
-	# Quit to DESKTOP for now. A4's U-4 adds the main menu, at which point this
-	# becomes quit-to-menu and a separate quit-to-desktop sits below it. Until
-	# then there is no graceful way out of the game at all, so this is a real
-	# gain rather than a placeholder.
 	get_tree().quit()
 
 
@@ -567,6 +597,7 @@ func on_enemy_killed(silver_reward: int) -> void:
 		return
 	PlayerData.earn_silver(silver_reward)
 	silver_earned_this_round += silver_reward
+	kills_this_round += 1
 	enemies_to_resolve -= 1
 	# Inert until W-2, which moves wave-scoped accounting into the manager.
 	# Forwarding from here means that move never has to reopen this file.
