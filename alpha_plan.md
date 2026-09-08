@@ -43,22 +43,23 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 | **A1** | "it's a game now" — waves + the boulder | 6% | ✅ built, exported, **not shipped** |
 | **A2** | enemy variety + Rain of Arrows | ~5.5% | ✅ **built, verified, complete** |
 | ~~**A3**~~ | ~~big battles — the horde engine~~ | ~2% spent | **MOVED TO [beta_plan.md](beta_plan.md)** 2026-09-07. D-1 shipped (−40.7%); the rest is beta work |
-| **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | ⏭️ **NEXT** — planned, see [a4_plan.md](a4_plan.md); **unblocks shipping** |
-| **A5** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
-| **A6** | a campaign shape — level select, more levels | ~4% | sketch |
+| **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | ✅ **COMPLETE 2026-09-08** ([a4_plan.md](a4_plan.md)). **Shipping is unblocked** |
+| **A5** | **pre-ship polish — art, audio, effects, settings, camera, export hygiene** | ~5% | ⏭️ **NEXT** — planned, see [a5_plan.md](a5_plan.md) |
+| **A6** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
+| **A7** | a campaign shape — level select, more levels | ~4% | sketch |
 | — | running throughout: first art batch | ~2% | |
 
 Adding A4 as its own stage pushed alpha's share of remaining work from 40% to roughly 43%. The
-shares are estimates and A5 absorbed a reduction, since some of its interface cost moved into A4.
+shares are estimates and A6 absorbed a reduction, since some of its interface cost moved into A4.
 
 **Moving A3's horde engine to beta (2026-09-07) took ~10% back out**, leaving alpha at roughly
 **33%** and beta at roughly **50%**. A3 had already spent ~2% on D-1, which shipped and stays.
 **A4 is now the next stage**, which is the whole point of the move — it is the only thing between
 this project and an itch release.
 
-**Moving A-2 Divine Smite and A-3 Dragon Fire from A2 to A5** (2026-09-06) shifted roughly 2.5%
+**Moving A-2 Divine Smite and A-3 Dragon Fire from A2 to A6** (2026-09-06) shifted roughly 2.5%
 between those two stages; the alpha total is unchanged. Both are cheaper than originally scoped
-because A2's A-1 already built the machinery they needed — see A5 below.
+because A2's A-1 already built the machinery they needed — see A6 below.
 
 ---
 
@@ -121,13 +122,13 @@ upload itself.
 - **Rain of Arrows** — the first of the three abilities deferred from A1, and the one that proved
   the ability registry generalises. It also introduced **directional (rotatable) aiming** and the
   optional `SHAPE` mechanism on the aim marker, neither of which was in A2's original scope.
-- **Divine Smite and Dragon Fire moved to A5** (2026-09-06). They were never blocking A2's
+- **Divine Smite and Dragon Fire moved to A6** (2026-09-06). They were never blocking A2's
   headline — enemy variety — and A-1 had already built the machinery both of them needed.
 
 A2 also closes two debts A1 left open: the Ogre's 80 HP makes the archer's damage upgrade track
 meaningful (**Known issue 1, verified dead** — 8 archer hits, dropping to 7 after one damage
 upgrade), and gives Divine Smite a target worth a 60s cooldown even though Smite itself now ships
-in A5.
+in A6.
 
 **A fresh save loses level_01 at wave 4** — measured, and deliberately left alone (2026-09-06).
 Four base archers fire 8 shots/sec against wave 4's ~16.7 enemies/sec; upgrades close the gap.
@@ -178,15 +179,15 @@ The ceiling is headroom for a horde that has not been designed yet. That makes i
 
 #### The two things dissolving A3 broke, and where they went
 
-**1. The TileMapLayer migration (T-1) lost its home — it is now A6's problem.**
+**1. The TileMapLayer migration (T-1) lost its home — it is now A7's problem.**
 
 CLAUDE.md Known issue 5 says to bundle it with the horde rewrite **or** do it immediately before
-building levels 2–15, *whichever comes first*. With the horde rewrite in beta, **A6 comes first**,
-so A6 now owns it. A6 already said it was "blocked on A3's TileMapLayer migration"; that sentence
+building levels 2–15, *whichever comes first*. With the horde rewrite in beta, **A7 comes first**,
+so A7 now owns it. A7 already said it was "blocked on A3's TileMapLayer migration"; that sentence
 would have pointed at a stage that no longer exists.
 
 This is the kind of thing that silently falls through a crack during a re-plan, so it is written
-down in three places: here, in A6 below, and in Known issue 5.
+down in three places: here, in A7 below, and in Known issue 5.
 
 **2. Overlapping waves no longer needs the horde engine — D-1 bought the headroom.**
 
@@ -197,11 +198,11 @@ overlap fits today.**
 
 It is a gameplay feature, not a performance one, and it is the better update headline of the two
 ("a bigger sequential wave is the same fight bigger; overlap is what makes it *overwhelming*").
-**Folded into A5.** The deferred cost is unchanged and still real: overlap needs a wave tag on
+**Folded into A6.** The deferred cost is unchanged and still real: overlap needs a wave tag on
 every enemy and per-wave decrements, because today a dying enemy unambiguously belongs to the
 current wave and one counter suffices.
 
-### A4 — MVP UI · ~6% · **the stage that unblocks shipping** · **NEXT**
+### A4 — MVP UI · ~6% · ✅ **COMPLETE 2026-09-08** · **shipping is unblocked**
 
 **Full work order: [a4_plan.md](a4_plan.md)** (planned 2026-09-08). The sketch below is kept
 because it is what the plan was written from; a4_plan supersedes it where they differ, and it
@@ -253,7 +254,26 @@ Plus the two that fall out of doing those properly:
 *~~Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency... fix when A4 is planned.~~*
 **Fixed 2026-09-08** during A4 planning — `ui_plan.md` now reads silver/gold throughout.
 
-### A5 — more ways to build and fight · ~7.5% *(was A4)*
+### A5 — pre-ship polish · ~5% · **NEXT**
+
+**Full work order: [a5_plan.md](a5_plan.md)** (planned 2026-09-08), which carries the complete
+asset manifest — 12 art files, 16 audio files, 9 effects — plus the five-strand order.
+
+Inserted 2026-09-08, pushing the old A5/A6 to A6/A7. A4 unblocked shipping; this is the pass that
+makes the first public build not embarrassing.
+
+Four strands:
+
+- **Tower art.** The archer and wizard sprites are 162–309 byte placeholders. The user has real
+  assets to import. *(Note this pulls art forward from beta, deliberately and narrowly — two
+  towers, not the whole commission.)*
+- **Settings menu** — music volume, SFX volume, resolution, fullscreen, vsync. Reachable from
+  the main menu and from the pause screen.
+- **Audio**, because volume sliders over a silent game are worse than no sliders. The project has
+  **zero** audio files today.
+- **Export hygiene** — the dev MCP toolkit and its autoload currently ship in the exported build.
+
+### A6 — more ways to build and fight · ~7.5% *(was A5; A4 before that)*
 
 - **The last two abilities, moved here from A2** (2026-09-06):
   - **Divine Smite** (60s, single target) — now the *easy* case. Point-aimed and circular, so it
@@ -280,7 +300,7 @@ Plus the two that fall out of doing those properly:
   because today a dying enemy unambiguously belongs to the current wave and one counter suffices.
 
 **This is smaller than it looks.** `PlayerData` already has `spend_gold()`, `unlocked_towers`,
-`is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A5 is wiring a UI
+`is_tower_unlocked()` and `slot_count`, all persisted and all working since M1 — A6 is wiring a UI
 to a working economy, not building one. The same is true of the two abilities: the registry, the
 cooldown dict, the bar and both aim modes are all built and verified.
 
@@ -289,7 +309,7 @@ it silently ignores every upgrade the player buys. And more placement slots is a
 increase: A1 measured that a 4-tower choke already wins passively at `difficulty_scale` 1.0, so
 this needs a re-tune, not just a number bump.
 
-### A6 — a campaign shape · ~4% *(was A5)*
+### A7 — a campaign shape · ~4% *(was A6; A5 before that)*
 
 - Level select.
 - A handful of rough levels, so progression has somewhere to go.
@@ -304,7 +324,7 @@ raising enemy HP is a binary cliff (archer damage is exactly 10, so any HP above
 shots needed and swings a comfortable win into a wave-4 loss), while volume scales smoothly. Level
 geometry is the real knob.
 
-**A6 NOW OWNS THE TileMapLayer MIGRATION (T-1).** It used to be bundled into A3's horde rewrite,
+**A7 NOW OWNS THE TileMapLayer MIGRATION (T-1).** It used to be bundled into A3's horde rewrite,
 but A3 moved to beta on 2026-09-07 — and Known issue 5's rule is "bundle it with the horde rewrite
 **or** do it immediately before building levels 2–15, whichever comes first." With the rewrite in
 beta, **this stage comes first, so the migration lands here.** Don't author fifteen levels against

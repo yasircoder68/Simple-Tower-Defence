@@ -130,7 +130,7 @@ func _process(delta: float) -> void:
 
 
 ## Read live from round_state rather than cached, mirroring the rule
-## is_valid_placement() and round_ui._upgrades_allowed() both follow. A cached
+## is_valid_placement() and the upgrade screen's own guard both follow. A cached
 ## copy would have to be invalidated on every path back to PRE_ROUND, and
 ## start_new_round() is exactly such a path — it calls reset() while heading
 ## *out* of a round, not into one.

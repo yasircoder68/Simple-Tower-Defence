@@ -12,18 +12,34 @@ const AOE_RADIUS := 100.0
 
 @onready var collision_shape = $CollisionShape2D
 @onready var timer = $Timer
+@onready var sprite: Sprite2D = $Sprite2D
+@onready var cast_anim_timer: Timer = $CastAnimTimer
 ## See archer.gd - resolved via the group so the testbed degrades quietly.
 @onready var map: Node = get_tree().get_first_node_in_group("map")
 
 var damage: int = 0
 ## Acquisition radius in world px. A number since S-1, not a collision shape.
 var range_px: float = 0.0
+## Index into CAST_FRAMES while a cast animation is playing.
+var _cast_step: int = 0
+
+## wizard.png is a 256x64 sheet of four 64x64 frames. Frame 0 is the orb at
+## rest and doubles as idle; 1 is the fireball charged; 2 is the release flare.
+## Frame 3 is a near-duplicate of 0 and is currently UNUSED — the cast plays
+## 0 -> 1 -> 2 and returns to 0, per the brief ("first 3 for animation, first
+## one for idle").
+const FRAME_IDLE := 0
+const CAST_FRAMES := [1, 2]
+
 
 func _ready():
 	# See archer.gd — towers persist between rounds, so map1 refreshes this
 	# group's stats at every round start.
 	add_to_group("tower_unit")
 	refresh_stats()
+
+	cast_anim_timer.stop()
+	cast_anim_timer.timeout.connect(_on_cast_anim_step)
 
 	if timer:
 		timer.stop()
@@ -64,3 +80,32 @@ func _on_timer_timeout():
 	fire.aoe_radius = AOE_RADIUS
 	get_parent().add_child(fire)
 	fire.global_position = global_position
+
+	# Same reasoning as archer.gd: the art is directional (the orb sits on the
+	# wizard's right), and it is drawn 3/4-overhead with the head above the
+	# body, so it flips rather than rotates.
+	sprite.flip_h = target.global_position.x < global_position.x
+	_start_cast_anim()
+
+
+## Steps the cast frames on a repeating Timer rather than a chain of awaits.
+##
+## RESTARTING mid-animation is safe and deliberate: a fully upgraded wizard can
+## fire faster than the animation runs, and restarting simply replays it from
+## the first frame. That is why this does not need to fit inside
+## MIN_ATTACK_INTERVAL the way archer.gd's single-frame hold does — a shot can
+## never leave the wizard stuck mid-cast, because the next shot resets it and
+## the final step always returns to idle.
+func _start_cast_anim() -> void:
+	_cast_step = 0
+	sprite.frame = CAST_FRAMES[0]
+	cast_anim_timer.start()
+
+
+func _on_cast_anim_step() -> void:
+	_cast_step += 1
+	if _cast_step < CAST_FRAMES.size():
+		sprite.frame = CAST_FRAMES[_cast_step]
+		return
+	sprite.frame = FRAME_IDLE
+	cast_anim_timer.stop()

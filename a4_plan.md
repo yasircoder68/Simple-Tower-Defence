@@ -1,7 +1,10 @@
 # A4 — "MVP UI" — Implementation Work Order
 
-**Status: IN PROGRESS. U-0 (theme), U-1 (pause), U-2 (HUD), U-3 (result screen) and U-4 (main
-menu) SHIPPED 2026-09-08. U-5 (upgrade screen) is next — after which only U-6 remains.**
+**Status: ✅ COMPLETE 2026-09-08. All six steps shipped and verified. `round_ui.gd` is deleted.**
+
+**THE SHIP GATE IS MET.** The game boots to a menu, plays, pauses, ends with a result screen that
+tells a losing player their silver was kept, has an upgrade shop reachable from two places, and
+has no debug UI anywhere on screen. **A4 was the only thing blocking an itch release.**
 
 **The game now boots to a main menu and has a complete loop:** menu -> play -> pause -> menu,
 and menu -> play -> result -> menu.
@@ -427,18 +430,126 @@ Both screens route through one `_on_menu_requested()` on the controller rather t
   the documented workaround for the changed boot scene, tested rather than assumed.
 - **Zero errors** in `debugger_get_log`.
 
-### U-5 — Upgrade screen · ~3h
+### U-5 — Upgrade screen · ✅ **SHIPPED 2026-09-08**
 
-- Relocates `round_ui`'s upgrade panel to a real screen, reachable from the menu **and** between
-  rounds.
-- Re-thinks the gating rather than porting it — see risk 2.
+`ui/upgrade_screen/upgrade_screen.tscn` + `.gd` — a modal `CanvasLayer` reachable from **two**
+places: the main menu's Upgrades button, and a HUD button that appears only between rounds.
 
-### U-6 — `round_ui.gd` deleted; docs pass · ~1h
+**Self-contained, which is what makes one scene serve both contexts.** It reads `PlayerData` and
+`TowerStats` and nothing else — both autoloads — so it never touches `map`. The identical scene
+therefore works as a child of the main menu with **no level loaded at all** and as an overlay
+inside a running level.
 
-- Delete the file and its construction in `level_controller._ready()`.
-- CLAUDE.md: the new `game_start` gotcha, the pause policy, the retired `round_ui` references
-  (including the button-path gotcha, which becomes obsolete).
-- alpha_plan.md: A4 → ✅.
+**No new backend**, as predicted: `try_upgrade()`, `get_upgrade_cost()`, `get_upgrade_level()` and
+the `10 * 1.35^level` curve have been working since M1.
+
+**The rows are generated from `TOWER_TYPES x UPGRADE_TRACKS`**, not authored in the `.tscn`, so a
+third tower or a fourth track appears here for free. The scene owns the frame; the registry owns
+the contents.
+
+#### Risk 2 resolved: the gating was re-thought, not ported
+
+`round_ui` asked `map.round_state == PRE_ROUND`, **a question that cannot be asked at the main
+menu** — there is no round and no map. The rule underneath was never "PRE_ROUND"; it was
+**"upgrades are allowed whenever no round is running"**, true both at the menu and between rounds.
+
+So the opener answers it and the screen takes the answer: `open(allowed)`. The menu passes `true`
+unconditionally; the level passes `round_state == RoundState.PRE_ROUND`. The shop never guesses.
+
+**The authoritative guard survived the move**, and was re-verified the way M1 learned to:
+
+| | |
+|---|---|
+| Mid-round, shop forced open | `_allowed = false`, button `disabled = true` |
+| `click_node` fired at it anyway | **damage stayed Lv5 — no purchase** |
+
+`input_simulate`'s `click_node` emits `pressed` directly and walks straight past a `disabled`
+flag, which silently defeated the first version of this exact test in M1. A disabled Button is a
+UI hint; the guard in the handler is the rule.
+
+#### Verified
+
+- **A real purchase from the main menu with no level loaded:** silver 29721 -> 29688 (-33), archer
+  damage Lv4 -> Lv5, and the button relabelled to the escalated 45-silver cost. That single result
+  is the whole point of the re-thought gating.
+- The same purchase carried into the level, and the menu's currency readout refreshed on close
+  (it is read once in `_ready()`, so a purchase behind it would otherwise leave a stale figure).
+- The HUD's Upgrades button is **hidden** outside `PRE_ROUND` rather than disabled — a disabled
+  shop button invites the click the guard then has to refuse.
+- Escape closes the shop rather than falling through to the pause screen underneath it.
+- **`round_ui.upgrade_panel` is now `null`** — round_ui builds nothing at all and is an empty
+  shell. U-6 deletes it.
+- **Zero errors** in `debugger_get_log`.
+
+### U-6 — `round_ui.gd` deleted; docs pass · ✅ **SHIPPED 2026-09-08**
+
+`ui/round_ui.gd` (341 lines) and its `.uid` are gone, along with the `round_ui` member and its
+construction in `level_controller._ready()`. By the time it was deleted it built **nothing** — U-2
+took the status labels and breather, U-3 the result panel, U-5 the upgrade panel — so the deletion
+removed an empty shell rather than live behaviour. That is exactly what the additive ordering was
+for.
+
+Cross-references in `ability_manager.gd` and `ability_bar.gd` were repointed. The remaining
+mentions across the codebase are deliberate **historical prose** — "round_ui learned this the hard
+way" — which is the record of *why* the current code is shaped as it is, and is worth more than
+tidiness.
+
+#### It caught a bug I had introduced across four scenes
+
+The controls hint rendered double-spaced. Measured rather than eyeballed: the Label's minimum
+height was **92px for three 11px lines**, and the text contained
+`Move: drag<CR><LF>Remove: right-click<CR><LF>Esc: pause`.
+
+**Editing a `.tscn` with Python in text mode on Windows rewrites `
+` as `
+
+` — including the
+newlines INSIDE a quoted multi-line string property.** Godot then renders the stray `
+` as an
+extra line break. Four scenes had been silently corrupted this way (`hud`, `main_menu`,
+`pause_menu`, `result_screen` — 271 line endings in total); only `hud` had a multi-line `text`
+property visible enough to show it.
+
+Normalised back to LF, and the hint's minimum height dropped 92 -> 54, which is correct. **The
+lesson is the general one: a file-writing tool that "helpfully" translates line endings will
+corrupt data inside quoted strings, and the damage is invisible until something renders it.**
+
+#### Acceptance — the ship gate, walked end to end
+
+- **Boot -> main menu**, with persistent silver and gold on it.
+- **Upgrades from the menu with no level loaded**, including a real purchase.
+- **Begin Defense -> level**, `/root/map1` intact, **no debug panel anywhere**.
+- **A full round: 894 silver, 407 kills, 17/20 lives, won.** A three-way reconciliation, and the
+  tightest this project has managed: 12 silver short of the 906 maximum, 3 lives lost, and 407 of
+  408 spawned enemies killed — **exactly one escaped ogre**, agreed independently by the silver
+  total, the lives counter and the new kill counter.
+- **Result screen -> Main Menu**, closing the loop.
+- **Zero errors** in `debugger_get_log`.
+
+---
+
+## What A4 delivered, against what it set out to do
+
+| Gate | State |
+|---|---|
+| Main menu | ✅ U-4, and it is the boot scene |
+| Pause | ✅ U-1, one-line policy, verified frozen by state |
+| Upgrade shop as its own screen | ✅ U-5, reachable from the menu and between rounds |
+| `round_ui` dead | ✅ U-6 |
+| Theme foundation | ✅ U-0, generated from ~20 constants |
+| A losing player learns their silver was kept | ✅ U-3 — **the point of the stage** |
+
+**Four bugs were found by testing rather than review**, and all four were invisible to reading the
+code: Escape quitting the game (U-2), the HUD reading "Wave 5/5" in PRE_ROUND (U-2), the result
+screen leaving the menu unreachable (U-4), and the CRLF scene corruption (U-6). Three of them were
+found only by *driving the real input or walking the real loop* rather than calling the function
+underneath it.
+
+**Deferred to beta by design:** `ui_plan`'s UI-2 (sidebar rebuild), UI-3 (procedural icons) and
+UI-5 (juice). None blocks a release, and beta already owns an *All UI screens finished* pass.
+
+**Not taken:** the display font. It needs an external asset download and is left as a standalone
+decision — still the best value-per-hour item available.
 
 ---
 
@@ -498,7 +609,7 @@ which is the entire reason the theme is generated.
 
 - A1 and A2 are complete, verified, and exported. **The game works.**
 - A3 is parked; the enemy ceiling (~420) is 2.7x what the waves actually use (152).
-- A5 (gold sinks, more towers, the last two abilities) and A6 (level select, more levels) both
+- A6 (gold sinks, more towers, the last two abilities) and A7 (level select, more levels) both
   **depend on A4** — level select is a screen, and screens arrive here.
 - Every hour spent anywhere else is an hour the game stays unreleased for a reason that has
   nothing to do with whether it is fun.

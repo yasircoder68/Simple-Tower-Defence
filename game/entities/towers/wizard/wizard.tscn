@@ -11,13 +11,17 @@ collision_layer = 2
 script = ExtResource("1_wiz")
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=2065603210]
-scale = Vector2(2.5, 2.5)
+scale = Vector2(0.8, 0.8)
 texture = ExtResource("2_wizimg")
+hframes = 4
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1735225534]
 shape = SubResource("CircleShape2D_wiz")
 
 [node name="Timer" type="Timer" parent="." unique_id=1217533021]
 autostart = true
+
+[node name="CastAnimTimer" type="Timer" parent="."]
+wait_time = 0.06
 
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

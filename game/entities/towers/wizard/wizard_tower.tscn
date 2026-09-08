@@ -7,8 +7,6 @@
 z_index = 20
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=1004197458]
-scale = Vector2(9, 9)
 texture = ExtResource("2_wiztowerimg")
 
 [node name="Wizard" parent="." instance=ExtResource("3_wizard")]
-position = Vector2(0, 40)

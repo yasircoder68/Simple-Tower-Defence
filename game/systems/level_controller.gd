@@ -177,7 +177,6 @@ var silver_earned_this_round: int = 0
 ## the lives readout already says what got through.
 var kills_this_round: int = 0
 
-var round_ui: CanvasLayer = null
 ## The pause screen. Round-scoped like every other manager here.
 var pause_menu: CanvasLayer = null
 ## The in-round HUD (A4's U-2). Owns the status readout and the breather that
@@ -186,6 +185,8 @@ var hud: CanvasLayer = null
 ## The end-of-round screen (A4's U-3). Owns the win/lose result round_ui used
 ## to carry, and the line telling a losing player their silver was kept.
 var result_screen: CanvasLayer = null
+## The upgrade shop (A4's U-5). The same scene the main menu instantiates.
+var upgrade_screen: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -197,8 +198,8 @@ func _ready() -> void:
 	generate_flow_field()
 	_assert_enemy_contract()
 
-	# Managers are constructed before round_ui because round_ui connects to
-	# their signals in setup() — the ordering dependency base_health already had.
+	# Managers are constructed before the UI, which connects to their signals in
+	# setup() — the ordering dependency base_health already had.
 	base_health = preload("res://systems/base_health.gd").new()
 	add_child(base_health)
 
@@ -230,27 +231,24 @@ func _ready() -> void:
 	ghost = ghost_scene.instantiate()
 	add_child(ghost)
 
-	# Built BEFORE round_ui so the suppression flag below is never a guess:
-	# the HUD demonstrably exists by the time round_ui decides what to skip.
 	hud = preload("res://ui/hud/hud.tscn").instantiate()
 	add_child(hud)
 	hud.setup(self)
+	hud.upgrades_requested.connect(_on_upgrades_requested)
+
+	# The same self-contained scene the main menu uses. It reads only the
+	# autoloads, so nothing here has to hand it any level state.
+	upgrade_screen = preload("res://ui/upgrade_screen/upgrade_screen.tscn").instantiate()
+	add_child(upgrade_screen)
 
 	result_screen = preload("res://ui/result_screen/result_screen.tscn").instantiate()
 	add_child(result_screen)
 	result_screen.setup(self)
 	result_screen.menu_requested.connect(_on_menu_requested)
 
-	round_ui = preload("res://ui/round_ui.gd").new()
-	round_ui.name = "RoundUI"
-	add_child(round_ui)
-	# The HUD and the result screen own everything but the upgrade panel now;
-	# round_ui keeps only that, until U-5 replaces it and U-6 deletes the file.
-	round_ui.setup(self, true)
-
-	# Added LAST so it sits below round_ui in the tree and therefore ABOVE it in
-	# input order - _unhandled_input runs in reverse tree order, and Escape must
-	# reach the pause screen before anything else can consume it.
+	# Added LAST so it sits last in the tree and therefore FIRST in input order —
+	# _unhandled_input runs in reverse tree order, and Escape must reach the
+	# pause screen before anything else can consume it.
 	#
 	# It is the ONLY node in the project at PROCESS_MODE_ALWAYS (set in its
 	# scene). Everything else inherits, so get_tree().paused stops the horde, both
@@ -525,7 +523,7 @@ func _start_round() -> void:
 	wave_manager.begin()
 
 
-## Called by round_ui's "Play Again" button after a win or loss.
+## Called by the result screen's "Play Again" button after a win or loss.
 ##
 ## Deliberately does NOT clear placed towers — a layout you built survives
 ## replaying the level, and you can keep adding to it up to slot_count. Only a
@@ -544,8 +542,8 @@ func _on_pause_resumed() -> void:
 
 ## Restart goes through start_new_round() — the SAME path "Play Again" uses —
 ## rather than re-implementing a reset. That path is tested, and it is also the
-## one that deliberately does NOT emit round_started, which round_ui already
-## knows how to handle. A bespoke restart here would rediscover that the hard
+## one that deliberately does NOT emit round_started, which every UI listener
+## already accounts for. A bespoke restart here would rediscover that the hard
 ## way.
 func _on_pause_restart() -> void:
 	start_new_round()
@@ -565,6 +563,13 @@ func _on_menu_requested() -> void:
 	get_tree().change_scene_to_file(MAIN_MENU_PATH)
 
 
+## Upgrades are a between-rounds activity, which in a level means PRE_ROUND.
+## The shop itself does not know what a round is — it takes the answer, because
+## it also runs at the main menu where there is no round to ask about.
+func _on_upgrades_requested() -> void:
+	upgrade_screen.open(round_state == RoundState.PRE_ROUND)
+
+
 func _on_pause_quit() -> void:
 	get_tree().quit()
 
@@ -581,9 +586,10 @@ func start_new_round() -> void:
 	pause_menu.setup(false)
 	# start_new_round() deliberately does NOT emit round_started (only the Start
 	# button's _start_round() does), and base_health.reset() emits no life_lost,
-	# so nothing else would move the HUD back to full lives here. round_ui hit
-	# this exact trap twice; the HUD gets told directly rather than trusting a
-	# lifecycle signal to cover every entry point.
+	# so nothing else would move the HUD back to full lives here. The deleted
+	# round_ui hit this exact trap twice and the HUD hit it a third time at U-2;
+	# listeners get told directly rather than trusting a lifecycle signal to
+	# cover every entry point.
 	hud.reset_for_new_round()
 	$CanvasLayer/StartButton.show()
 

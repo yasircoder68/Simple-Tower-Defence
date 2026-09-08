@@ -7,14 +7,14 @@
 radius = 50.0
 
 [node name="Archer" type="Area2D" unique_id=1607208364]
-position = Vector2(329, 98)
 collision_layer = 2
 script = ExtResource("1_b0l3x")
 metadata/_edit_group_ = true
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=225265300]
-scale = Vector2(3, 3)
+scale = Vector2(0.8, 0.8)
 texture = ExtResource("2_orquw")
+hframes = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1276783003]
 shape = SubResource("CircleShape2D_cctdm")
@@ -22,5 +22,9 @@ shape = SubResource("CircleShape2D_cctdm")
 [node name="Timer" type="Timer" parent="." unique_id=341675892]
 wait_time = 0.5
 autostart = true
+
+[node name="ShotAnimTimer" type="Timer" parent="." unique_id=1329972161]
+wait_time = 0.08
+one_shot = true
 
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

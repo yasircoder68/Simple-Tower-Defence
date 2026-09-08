@@ -3,7 +3,7 @@ extends Control
 ## Bottom-centre ability bar: one slot per registry entry, click or number key
 ## to select, with each slot showing its own cooldown draining.
 ##
-## Its own scene rather than part of round_ui.gd, because round_ui is explicitly
+## Its own scene rather than part of the old round_ui.gd, because that was
 ## throwaway and is deleted wholesale at UI-0/UI-1 — this is a permanent element
 ## (ui_plan.md's UI-1), so building it inside the throwaway means building it
 ## twice. build_sidebar is the precedent.
@@ -77,7 +77,7 @@ func _build_slot(ability_id: String) -> Button:
 	var button := Button.new()
 	# Explicit name so it is addressable by path for testing — anonymous
 	# procedural Controls get auto-generated names like @Button@42, which are
-	# not guessable in advance. round_ui names its buttons for the same reason.
+	# not guessable in advance. The upgrade screen names its buttons likewise.
 	button.name = "AbilitySlot_%s" % ability_id
 	button.custom_minimum_size = SLOT_SIZE
 	button.text = "%s  %s" % [entry["key_label"], entry["display_name"]]

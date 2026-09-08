@@ -27,6 +27,7 @@ var map: Node2D = null
 @onready var lives_value: Label = $Root/TopLeft/Stats/Grid/LivesValue
 @onready var wave_value: Label = $Root/TopLeft/Stats/Grid/WaveValue
 @onready var controls_hint: Label = $Root/TopLeft/ControlsHint
+@onready var upgrades_button: Button = $Root/TopLeft/UpgradesButton
 
 @onready var breather_panel: PanelContainer = $Root/Breather
 @onready var breather_label: Label = $Root/Breather/Rows/BreatherLabel
@@ -35,6 +36,10 @@ var map: Node2D = null
 ## Debug readout, off in a shipped build. Kept because the perf work needs it —
 ## but see the note in _ready() about what was removed with it.
 @export var show_fps: bool = false
+
+## Opens the upgrade shop. The level controller connects this rather than the
+## HUD reaching for the screen itself — the HUD displays, it does not navigate.
+signal upgrades_requested
 
 ## Mirrored from wave_started rather than read off wave_manager, so this stays
 ## signal-driven — the manager's wave list is its own business.
@@ -73,6 +78,7 @@ func _ready() -> void:
 	# is a deliberate choice from the pause screen.
 	fps_label.visible = show_fps
 	skip_button.pressed.connect(_on_skip_breather_pressed)
+	upgrades_button.pressed.connect(func(): upgrades_requested.emit())
 	breather_panel.hide()
 
 
@@ -169,4 +175,11 @@ func refresh() -> void:
 	# Dimmed rather than hidden outside the build phase: the controls still
 	# exist, they are just not usable right now, and a hint that vanishes reads
 	# as a bug rather than as a state.
-	controls_hint.modulate.a = 1.0 if map.round_state == map.RoundState.PRE_ROUND else 0.4
+	var between_rounds: bool = map.round_state == map.RoundState.PRE_ROUND
+	controls_hint.modulate.a = 1.0 if between_rounds else 0.4
+	# HIDDEN rather than disabled outside the build phase. A disabled shop button
+	# invites the click the authoritative guard then has to refuse; not offering
+	# it at all states more clearly that upgrading is a between-rounds activity.
+	# The guard in upgrade_screen.gd exists regardless — a disabled Button is not
+	# a rule, and click_node walks straight past one.
+	upgrades_button.visible = between_rounds

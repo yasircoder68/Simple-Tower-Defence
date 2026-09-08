@@ -80,6 +80,10 @@ text = "Move: drag
 Remove: right-click
 Esc: pause"
 
+[node name="UpgradesButton" type="Button" parent="Root/TopLeft"]
+layout_mode = 2
+text = "Upgrades"
+
 [node name="Breather" type="PanelContainer" parent="Root"]
 anchor_left = 0.5
 anchor_right = 0.5

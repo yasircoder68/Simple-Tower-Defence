@@ -1,0 +1,49 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/upgrade_screen/upgrade_screen.gd" id="1_upgrade"]
+
+[node name="UpgradeScreen" type="CanvasLayer"]
+layer = 60
+script = ExtResource("1_upgrade")
+
+[node name="Scrim" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.078, 0.067, 0.059, 0.82)
+
+[node name="Center" type="CenterContainer" parent="Scrim"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="Scrim/Center"]
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 2
+
+[node name="Rows" type="VBoxContainer" parent="Scrim/Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Scrim/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"H1"
+text = "Upgrades"
+horizontal_alignment = 1
+
+[node name="Silver" type="Label" parent="Scrim/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"Silver"
+text = "Silver  0"
+horizontal_alignment = 1
+
+[node name="Tracks" type="VBoxContainer" parent="Scrim/Center/Card/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="CloseButton" type="Button" parent="Scrim/Center/Card/Rows"]
+layout_mode = 2
+theme_type_variation = &"ButtonPrimary"
+text = "Done"

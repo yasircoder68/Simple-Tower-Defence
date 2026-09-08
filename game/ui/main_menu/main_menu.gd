@@ -23,27 +23,54 @@ extends Control
 
 const LEVEL_PATH := "res://levels/level_01.tscn"
 
+var _upgrade_screen: CanvasLayer = null
+
 @onready var currency_label: Label = $Backdrop/Center/Card/Rows/Currency
 @onready var begin_button: Button = $Backdrop/Center/Card/Rows/BeginButton
+@onready var upgrades_button: Button = $Backdrop/Center/Card/Rows/UpgradesButton
 @onready var quit_button: Button = $Backdrop/Center/Card/Rows/QuitButton
 
 
 func _ready() -> void:
 	begin_button.pressed.connect(_on_begin_pressed)
+	upgrades_button.pressed.connect(_on_upgrades_pressed)
+
+	# The upgrade screen is a self-contained CanvasLayer that reads only the
+	# autoloads, so the SAME scene works here with no level loaded and as an
+	# overlay inside a running one. Added as a child rather than swapped to via
+	# change_scene_to_file, because this is a modal over the menu, not a
+	# destination — and swapping would need a way back that re-reads the save.
+	_upgrade_screen = preload("res://ui/upgrade_screen/upgrade_screen.tscn").instantiate()
+	add_child(_upgrade_screen)
+	_upgrade_screen.closed.connect(_on_upgrades_closed)
 	quit_button.pressed.connect(_on_quit_pressed)
 
 	# Surfacing the persistent currencies here is the cheapest possible way to
 	# make meta-progression visible before the player has played anything. It is
 	# the hook the whole economy rests on — a returning player should see that
 	# their last run left them better off.
-	currency_label.text = "Silver %d     Gold %d" % [PlayerData.silver, PlayerData.gold]
+	_refresh_currency()
 
 	begin_button.grab_focus()
 
 
-## No Upgrades entry yet — U-5 builds the upgrade screen and adds its button in
-## the same step. A disabled button now would be dead UI in a shipped build, and
-## the menu is the first thing a stranger sees.
+## Always allowed from here: there is no round running at the main menu, which
+## is exactly the rule the shop gates on. See upgrade_screen.gd.
+func _on_upgrades_pressed() -> void:
+	_upgrade_screen.open(true)
+
+
+## The currencies on the menu are read once in _ready(), so a purchase made in
+## the shop would leave a stale figure behind it.
+func _on_upgrades_closed() -> void:
+	_refresh_currency()
+	begin_button.grab_focus()
+
+
+func _refresh_currency() -> void:
+	currency_label.text = "Silver %d     Gold %d" % [PlayerData.silver, PlayerData.gold]
+
+
 func _on_begin_pressed() -> void:
 	get_tree().change_scene_to_file(LEVEL_PATH)
 

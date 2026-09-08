@@ -26,7 +26,7 @@ and **three enemy types — goblin, skeleton, ogre**. Plus a self-measuring benc
 forward from A3, and **A-1 Rain of Arrows** — the second ability, and the one that introduced
 directional (rotatable) aiming.
 
-**A-2 Divine Smite and A-3 Dragon Fire moved from A2 to A5** (2026-09-06) — they were never
+**A-2 Divine Smite and A-3 Dragon Fire moved from A2 to A6** (2026-09-06) — they were never
 blocking A2's headline of enemy variety, and A-1 already built the machinery both need.
 
 Not yet built: the horde engine rewrite, MVP UI, the last two abilities, gold sinks, multiple maps,
@@ -57,7 +57,7 @@ theme. It is still in git history if ever needed. Every sprite in the running ga
 were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
 
 **In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
-rename, and Rain of Arrows. The other two abilities moved to A5; see that file for progress.
+rename, and Rain of Arrows. The other two abilities moved to A6; see that file for progress.
 
 **Planned next: [a4_plan.md](a4_plan.md) — A4, MVP UI.** Main menu, pause, and a real upgrade
 screen. It is the only thing between this project and an itch release, and it is fully planned:
@@ -69,8 +69,8 @@ moved to [beta_plan.md](beta_plan.md) on 2026-09-07. **Read a3_plan's opening se
 touching the crowd code anyway:** it holds D-1's full measurement record and four dead ends that
 were each bought expensively, and it overturns the diagnosis recorded under Performance below.
 
-Dissolving A3 orphaned two items, both rehomed: the **TileMapLayer migration is now A6's** (see
-Known issue 5) and **overlapping waves is now A5's** (D-1's headroom means it no longer needs the
+Dissolving A3 orphaned two items, both rehomed: the **TileMapLayer migration is now A7's** (see
+Known issue 5) and **overlapping waves is now A6's** (D-1's headroom means it no longer needs the
 horde rewrite).
 
 **Roadmap: [alpha_plan.md](alpha_plan.md) -> [beta_plan.md](beta_plan.md) ->
@@ -93,13 +93,22 @@ piece, rather than deferring all interface work to step 8).
 **This is now a release blocker, not a polish task.** A1 is built and exported but has not
 shipped, because the game has no main menu, no pause, and an upgrade panel bolted to the play
 screen. `alpha_plan.md` gained a dedicated stage — **A4 — MVP UI** — to fix exactly that, which
-renumbered the old A4/A5 to A5/A6.
+renumbered the old A4/A5 to A5/A6. **A second renumber followed on 2026-09-08**, when A5 —
+the pre-ship polish stage (tower art + settings menu) — was inserted, pushing those two to A6/A7.
 
-**A4 is in progress: [a4_plan.md](a4_plan.md).** U-0 (theme), U-1 (pause), U-2 (HUD), U-3 (result
-screen) and U-4 (main menu) shipped 2026-09-08; U-5 (upgrade screen) is next, then U-6 deletes
-`round_ui`. **The game boots to a menu and the loop closes:** menu -> play -> pause/result -> menu. **The losing result screen now tells
-the player their silver was kept** — the single most load-bearing change in the stage, because a
-fresh save loses at wave 4 by design and the old screen read as though the progress went with it. Three things
+**A4 IS COMPLETE (2026-09-08) — see [a4_plan.md](a4_plan.md).** All six steps shipped: theme,
+pause, HUD, result screen, main menu, upgrade screen, and `round_ui.gd` deleted. **The ship gate is
+met:** the game boots to a menu, plays, pauses, ends on a result screen that tells a losing player
+their silver was kept, has an upgrade shop reachable from two places, and shows no debug UI
+anywhere. **A4 was the only thing blocking an itch release.**
+
+**A5 — pre-ship polish — is planned and next: [a5_plan.md](a5_plan.md).** Art, audio, effects, a
+settings menu, player-controlled camera zoom/pan, and export hygiene. It carries the **asset
+manifest**: 12 art files, 16 audio files, 9 effects, with exact paths and pixel sizes.
+
+**Two things A5 exists to fix that are easy to miss:** the exported build currently packs the whole
+MCP dev addon and **starts a WebSocket listener on the player's machine**, and the level is drawn
+entirely from `1_pixel.png` — every wall is a white square and there is no floor at all. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
 rather than nested; pause needs **one** `PROCESS_MODE_ALWAYS` exception rather than four
 per-system rules; and A4 deliberately takes only `ui_plan`'s UI-0 + a trimmed UI-1 + UI-4, leaving
@@ -188,7 +197,8 @@ different round, confirmed the silver from the win was still there afterward.
 ```
 zombie game prototype 1/
 ├── CLAUDE.md                ← this file
-├── a4_plan.md               ← NEXT: MVP UI work order (menu, pause, upgrade screen)
+├── a4_plan.md               ← DONE: MVP UI (menu, pause, HUD, result, upgrades)
+├── a5_plan.md               ← NEXT: pre-ship polish + the ASSET MANIFEST
 ├── alpha_plan.md            ← roadmap: itch releases, mechanics-first (40%)
 ├── beta_plan.md             ← roadmap: Steam demo, final art (40%)
 ├── final_plan.md            ← roadmap: paid release (20%)
@@ -218,9 +228,9 @@ zombie game prototype 1/
     │                          bench.gd (dev-only horde benchmark)
     ├── ui/                  ← palette.gd + build_theme.gd -> game_theme.tres (A4's U-0),
     │                          pause_menu/ (U-1), hud/ (U-2), result_screen/ (U-3),
-    │                          main_menu/ (U-4, THE BOOT SCENE), build_sidebar/,
-    │                          ghost_tower/, aim_marker/, ability_bar/,
-    │                          round_ui.gd (throwaway, dies at U-6)
+    │                          main_menu/ (U-4, THE BOOT SCENE), upgrade_screen/
+    │                          (U-5), build_sidebar/, ghost_tower/, aim_marker/,
+    │                          ability_bar/
     ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
     ├── testbed/             ← clean_area.tscn/.gd (quarantined harness)
     └── addons/godot_mcp_toolkit/   ← 277 files, vendored; not your code
@@ -493,7 +503,7 @@ through the map. `boulder.gd` declares only `RADIUS` and never had to learn any 
   manager from the payload script that owns them, so the preview cannot drift from the real blast.
   `SHAPE` was specced for A-3 and landed at A-1; it is general, not a Rain-specific branch, so
   Dragon Fire can inherit it rather than shipping its planned fixed left→right axis.
-- **`ui/ability_bar/`** is its own scene, deliberately not part of throwaway `round_ui.gd` — it is
+- **`ui/ability_bar/`** is its own scene, deliberately not part of the since-deleted `round_ui.gd` — it is
   a permanent UI element (ui_plan UI-1), so building it inside the throwaway means building it
   twice. `build_sidebar` is the precedent.
 - Ability kills route through `enemy.gd`'s `_die()` → `map.on_enemy_killed()` like any other kill;
@@ -590,11 +600,11 @@ A1 handover.
   first spawn; `archer.gd`/`wizard.gd` both join `tower_unit` and expose `refresh_stats()`.
   **Any new tower script must do both**, or it silently ignores upgrades.
 - **`start_new_round()` does not emit `round_started`** (only `_start_round()`, the Start
-  button, does). `round_ui.gd` learned this the hard way: hide UI state reactively in the
+  button, does). `round_ui.gd` learned this the hard way, and A4's HUD learned it again: hide UI state reactively in the
   handler that changes it, don't assume a lifecycle signal covers every entry point back to
   the same state.
 - **Upgrades are locked outside `PRE_ROUND`**, enforced in two places: the buttons' `disabled`
-  flag, and an authoritative guard in `round_ui._on_upgrade_pressed()`. The guard is not
+  flag, and an authoritative guard in `upgrade_screen._on_upgrade_pressed()`. The guard is not
   redundant — a disabled Button still runs its `pressed` handler if something emits the signal
   directly (which `input_simulate`'s `click_node` does, and which silently defeated the first
   version of this test).
@@ -602,12 +612,25 @@ A1 handover.
   calls it and only forwards the *actual* amount paid (0 on a replay) through `round_ended`'s
   `gold_awarded` param. Never infer "gold was paid" from `won == true` alone.
 
-`round_ui.gd` is the M1-only status/result/upgrade UI — a single CanvasLayer, explicitly
-throwaway, replaced wholesale by UI-0/UI-1 (`ui_plan.md`). Its buttons are given explicit
-`.name`s (`UpgradeButton_<type>_<track>`, `PlayAgainButton`) specifically so they're
-addressable by path for testing — anonymous procedurally-created `Control`s otherwise get
-auto-generated names like `@Button@42`, gettable at runtime via
-`node.find_child("Name", true, false)` but not guessable in advance.
+### The UI layer (A4)
+
+`round_ui.gd` — the M1-only throwaway that carried status, result and upgrades on one CanvasLayer
+— **was deleted at A4's U-6.** Four scenes replaced it, each on its own `CanvasLayer` and each
+signal-driven with no polling:
+
+| Scene | Owns |
+|---|---|
+| `ui/hud/` | silver / gold / lives / wave, controls hint, breather + skip, the Upgrades button, FPS behind a flag |
+| `ui/pause_menu/` | Resume / Restart / Quit to Menu / Quit to Desktop. **The only `PROCESS_MODE_ALWAYS` node in the project** |
+| `ui/result_screen/` | win/lose, waves, kills, silver, gold — and the line telling a loser their silver was kept |
+| `ui/upgrade_screen/` | the shop. Self-contained (autoloads only), so the SAME scene serves the main menu and a level |
+| `ui/main_menu/` | the boot scene: Begin Defense / Upgrades / Quit, plus persistent currencies |
+
+**Procedurally created buttons still need explicit `.name`s** (`UpgradeButton_<type>_<track>`) so
+they are addressable by path for testing — anonymous `Control`s get auto-generated names like
+`@Button@42`, gettable at runtime via `node.find_child("Name", true, false)` but not guessable in
+advance. The upgrade screen generates its rows from `TOWER_TYPES x UPGRADE_TRACKS` and names them
+for exactly this reason.
 
 ---
 
@@ -631,9 +654,22 @@ auto-generated names like `@Button@42`, gettable at runtime via
   hardcoded height. A fixed size is a latent break every time the palette moves — UI-0 broke two of
   `round_ui`'s three panels the moment the theme landed. Let the theme's stylebox content margins
   do the padding instead of manual insets.
-- **Line endings are MIXED in this project.** `ui/round_ui.gd` is CRLF; most other scripts are LF.
-  MCP `script_edit` matches byte-for-byte, so an `old_string` copied with the wrong endings fails
-  with a bare `NOT_FOUND` that looks like a typo. Check before assuming the text moved.
+- **NEVER write a `.tscn` with a text-mode file API on Windows.** Python's `open(p, "w")`
+  translates `
+` to `
+
+` — **including newlines INSIDE a quoted multi-line string property**.
+  Godot then renders the stray `
+` as an extra line break. This silently corrupted four scenes
+  during A4; only the HUD's multi-line controls hint was visible enough to notice, showing as
+  double-spaced text with a Label minimum height of 92px instead of 54px. Use binary mode, or
+  `newline=""`, and normalise with `content.replace(b"
+
+", b"
+")` if it has already happened.
+- **Line endings are MIXED in this project**, so MCP `script_edit` — which matches byte-for-byte —
+  fails with a bare `NOT_FOUND` that looks like a typo when an `old_string` carries the wrong
+  endings. Check the file before assuming the text moved.
 
 ---
 
@@ -885,22 +921,25 @@ Still open, roughly by value:
 2. Flow field charges `cost + 1` for diagonals → Chebyshev distances, so diagonal routes are
    under-priced and paths skew.
 3. `is_wall()` tests only the enemy's centre point, so bodies clip wall corners.
-4. `place_tower` marks exactly one cell occupied, but the wizard sprite is 9× scale — towers
-   visually overlap.
+4. ~~`place_tower` marks one cell occupied but the wizard sprite is 9x scale — towers visually
+   overlap.~~ **CLOSED 2026-09-08** by A5's wizard art import: every tower sprite is now scale 1.0
+   on a 64x64 texture, so a tower overhangs its 50px cell by 7px a side instead of by four cells.
 5. `TileMap` is deprecated as of Godot 4.3 (project targets 4.6). **Migration is deliberately
    deferred — do not "helpfully" do it.** Deprecated is not removed; it works fine in 4.6. The
    rule has always been: **bundle it with the horde rewrite, or do it immediately before building
    levels 2–15 — whichever comes first.**
-   **As of 2026-09-07 that resolves to A6, and A6 owns it.** The horde rewrite moved to beta, so
+   **As of 2026-09-07 that resolves to A7, and A7 owns it.** The horde rewrite moved to beta, so
    the levels come first. This was an orphan created by dissolving A3 and is deliberately recorded
-   in three places (here, alpha_plan's A3 and A6 entries) because it is exactly the kind of
+   in three places (here, alpha_plan's A3 and A7 entries) because it is exactly the kind of
    dependency a re-plan drops silently.
    Affected calls, all in `level_controller.gd`: `get_used_cells(0)`, `local_to_map`,
    `map_to_local`, `get_used_rect`. Note the `0` in `get_used_cells(0)` is a layer index that
    ceases to exist under `TileMapLayer`, where the node *is* the layer.
 6. The TileMap physics layer generates collision shapes that nothing uses (movement is manual).
-7. `archer.tscn` still carries a leftover `position = Vector2(329, 98)`, dead because
-   `archer_tower.gd` repositions the archer after `add_child`. Harmless, cosmetic.
+7. ~~`archer.tscn` carries a leftover `position = Vector2(329, 98)`.~~ **CLOSED 2026-09-08** —
+   removed during A5's archer art import, along with the `(0, -60)` visual offset in
+   `archer_tower.gd`. The real art is a 64x64 top-down platform with a 64x64 archer meant to stand
+   in its middle, so both now share a centre and neither is nudged.
 8b. **Rain of Arrows reuses the archer's `arrow.png`** rather than owning a copy — a **deliberate
    exception to colocation**, on the grounds that these are the same object: replacing the
    archer's arrow should re-skin the barrage too, and two copies would let them silently diverge.
@@ -991,8 +1030,8 @@ already ran at 60 FPS before any of it. The remaining cost is inherent to one-No
 which only de-nodify/MultiMesh addresses — a big, risky item that earns its keep in beta, where a
 huge horde is a store-page screenshot, and not in alpha, where it was blocking nothing.
 
-**Two orphans rehomed:** the TileMapLayer migration to **A6** (Known issue 5), overlapping waves
-to **A5** (D-1's headroom means it no longer needs the rewrite).
+**Two orphans rehomed:** the TileMapLayer migration to **A7** (Known issue 5), overlapping waves
+to **A6** (D-1's headroom means it no longer needs the rewrite).
 
 **A4 is next.**
 
@@ -1000,7 +1039,7 @@ to **A5** (D-1's headroom means it no longer needs the rewrite).
 step-by-step state. **Shipped: R-0 (contract hardening), R-1 + R-2 (both renames), M-0 (bench
 harness), E-1 (enemy registry), E-2 (life cost), E-3 (wave composition), E-4 (skeleton), E-5
 (ogre), A-1 (Rain of Arrows), and the step-11 tune/verify pass.** **A-2 Divine Smite and A-3
-Dragon Fire moved to A5.** A2 is closed.
+Dragon Fire moved to A6.** A2 is closed.
 
 **Step 11 verified two things worth carrying forward.** Both proof cases passed: losing mid-wave
 with ogres and skeletons in flight leaves no stale `_spawn_plan` and no ghost spawns on restart;
@@ -1231,7 +1270,7 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   flag** — a disabled button still runs its handler under this tool. Never trust a widget's
   disabled state as the only guard; verify state after a forced action instead, and put an
   authoritative check in the handler itself for anything that's a real rule (see
-  `round_ui._on_upgrade_pressed()`).
+  `upgrade_screen._on_upgrade_pressed()`).
 - **`get_global_mouse_position()` is not reliably driven by `input_simulate`'s `mouse_motion` /
   `mouse_button` `position`/`world_position` fields in this environment** — repeated attempts to
   calibrate it (linear regression on known screen->world pairs, the `click` composite) produced
