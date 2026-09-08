@@ -14,7 +14,7 @@ var lives_label: Label
 var wave_label: Label
 var controls_hint_label: Label
 
-var breather_panel: Panel
+var breather_panel: PanelContainer
 var breather_label: Label
 var skip_breather_button: Button
 
@@ -27,14 +27,25 @@ var result_panel: Panel
 var result_label: Label
 var play_again_button: Button
 
-var upgrade_panel: Panel
+## True once the HUD owns the status readout and breather. See setup().
+var _status_suppressed: bool = false
+
+var upgrade_panel: PanelContainer
 # tower_type -> track -> Button, so a refresh can update labels in place
 # instead of rebuilding the panel.
 var upgrade_buttons: Dictionary = {}
 
 
-func setup(map_ref: Node2D) -> void:
+## suppress_status skips the parts A4's U-2 HUD took over: the status labels and
+## the breather panel. Skipping CONSTRUCTION rather than hiding the nodes is
+## deliberate — a hidden panel still has live signal handlers that would fight
+## the HUD for the same state, and _process() would still tick a countdown.
+##
+## round_ui is deleted outright at U-6. Until then it keeps the result and
+## upgrade panels, which U-3 and U-5 have not replaced yet.
+func setup(map_ref: Node2D, suppress_status: bool = false) -> void:
 	map = map_ref
+	_status_suppressed = suppress_status
 
 	PlayerData.silver_changed.connect(_on_silver_changed)
 	PlayerData.gold_changed.connect(_on_gold_changed)
@@ -47,8 +58,9 @@ func setup(map_ref: Node2D) -> void:
 	map.wave_manager.breather_started.connect(_on_breather_started)
 	map.wave_manager.all_waves_complete.connect(_on_all_waves_complete)
 
-	_build_status_labels()
-	_build_breather_panel()
+	if not _status_suppressed:
+		_build_status_labels()
+		_build_breather_panel()
 	_build_upgrade_panel()
 	_build_result_panel()
 
@@ -92,23 +104,27 @@ func _build_status_labels() -> void:
 ## slot the StartButton uses — the two are never visible at once, since the
 ## button only shows in PRE_ROUND and a breather only happens mid-round.
 func _build_breather_panel() -> void:
-	breather_panel = Panel.new()
+	# Content-sized, for the same reason as the upgrade panel below. This one
+	# was not visibly broken by UI-0's theme - but measuring it found the VBox
+	# minimum height was 60 inside exactly 60px of space. ZERO slack: it renders
+	# correctly today and clips the Skip button on the next palette change.
+	# "It looks fine" is the reasoning that produced the upgrade panel's bug.
+	#
+	# GROW_DIRECTION_BOTH is what lets a content-sized Control stay centred:
+	# anchored to the horizontal midpoint with zero offsets, it expands equally
+	# in both directions instead of growing off to the right.
+	breather_panel = PanelContainer.new()
 	breather_panel.anchor_left = 0.5
 	breather_panel.anchor_right = 0.5
-	breather_panel.offset_left = -110
-	breather_panel.offset_right = 110
+	breather_panel.offset_left = 0
+	breather_panel.offset_right = 0
 	breather_panel.offset_top = 20
-	breather_panel.offset_bottom = 92
-	breather_panel.hide()
+	breather_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	breather_panel.custom_minimum_size.x = 220
+	_hide_breather()
 	add_child(breather_panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.anchor_right = 1.0
-	vbox.anchor_bottom = 1.0
-	vbox.offset_left = 8
-	vbox.offset_top = 6
-	vbox.offset_right = -8
-	vbox.offset_bottom = -6
 	breather_panel.add_child(vbox)
 
 	breather_label = Label.new()
@@ -123,20 +139,26 @@ func _build_breather_panel() -> void:
 
 
 func _build_upgrade_panel() -> void:
-	upgrade_panel = Panel.new()
-	upgrade_panel.offset_left = 10
-	upgrade_panel.offset_top = 255 # status vbox gained the wave line (90-245)
-	upgrade_panel.offset_right = 270
-	upgrade_panel.offset_bottom = 495
+	# PanelContainer, not Panel: it sizes ITSELF to its content, so the panel
+	# cannot be outgrown by its own buttons.
+	#
+	# The previous version hardcoded a 240px height (offset_bottom 495) against
+	# Godot's DEFAULT button metrics. UI-0's theme gives every button content
+	# margins, and the six upgrade buttons immediately overflowed the panel
+	# background by three rows - visible on the very first run after the theme
+	# landed. Bumping the number would defer the identical bug to the next
+	# palette change, which is exactly what a generated theme exists to make
+	# cheap; sizing to content removes the failure mode instead.
+	#
+	# The inner VBox needs no anchors or insets either: the theme's `panel`
+	# stylebox carries the content margins, so padding is a palette value
+	# rather than four magic numbers per panel.
+	upgrade_panel = PanelContainer.new()
+	upgrade_panel.position = Vector2(10, 255) # status vbox runs 90-245
+	upgrade_panel.custom_minimum_size.x = 260 # the column width every panel uses
 	add_child(upgrade_panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.anchor_right = 1.0
-	vbox.anchor_bottom = 1.0
-	vbox.offset_left = 8
-	vbox.offset_top = 8
-	vbox.offset_right = -8
-	vbox.offset_bottom = -8
 	upgrade_panel.add_child(vbox)
 
 	var title := Label.new()
@@ -245,16 +267,17 @@ func _on_wave_started(wave_num: int, wave_total: int, _enemy_count: int) -> void
 	_wave_total = wave_total
 	# Hide here as well as in the skip handler: a breather also ends by simply
 	# timing out, and that path never touches the button.
-	breather_panel.hide()
+	_hide_breather()
 	_refresh_status()
 
 
 func _on_breather_started(_seconds: float) -> void:
-	breather_panel.show()
+	if breather_panel != null:
+		breather_panel.show()
 
 
 func _on_all_waves_complete() -> void:
-	breather_panel.hide()
+	_hide_breather()
 
 
 func _on_skip_breather_pressed() -> void:
@@ -262,7 +285,7 @@ func _on_skip_breather_pressed() -> void:
 	# Hidden immediately rather than waiting for wave_started, following the
 	# same rule Play Again learned: hide UI state in the handler that changes
 	# it, don't assume a lifecycle signal covers every entry point.
-	breather_panel.hide()
+	_hide_breather()
 
 
 func _on_round_started() -> void:
@@ -295,7 +318,7 @@ func _on_round_ended(won: bool, gold_awarded: int, silver_earned: int) -> void:
 	# A round can end DURING a breather — a loss on the escape that drains the
 	# last life — which would otherwise leave the countdown ticking over the
 	# result screen.
-	breather_panel.hide()
+	_hide_breather()
 	_refresh_status()
 	_refresh_upgrade_buttons()
 
@@ -306,7 +329,7 @@ func _on_play_again_pressed() -> void:
 	# start_new_round() (this button), so it wouldn't fire until the player
 	# presses Start again, leaving the result panel stuck on screen.
 	result_panel.hide()
-	breather_panel.hide()
+	_hide_breather()
 	_wave_num = 0
 	_wave_total = 0
 	map.start_new_round()
@@ -316,9 +339,18 @@ func _on_play_again_pressed() -> void:
 	_refresh_upgrade_buttons() # back in PRE_ROUND, so unlock them
 
 
+## Null-safe: the breather panel is not built when the HUD owns it.
+func _hide_breather() -> void:
+	if breather_panel != null:
+		breather_panel.hide()
+
+
 # --- Refresh ---------------------------------------------------------------
 
 func _refresh_status() -> void:
+	# The HUD owns these labels when suppressed, and they were never built.
+	if _status_suppressed:
+		return
 	silver_label.text = "Silver: %d" % PlayerData.silver
 	gold_label.text = "Gold: %d" % PlayerData.gold
 	lives_label.text = "Lives: %d/%d" % [map.base_health.lives, map.base_health.max_lives]

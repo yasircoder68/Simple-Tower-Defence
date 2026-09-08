@@ -1,0 +1,100 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_hud")
+
+[node name="Root" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TopLeft" type="VBoxContainer" parent="Root"]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 280.0
+offset_bottom = 240.0
+theme_override_constants/separation = 8
+mouse_filter = 2
+
+[node name="FpsLabel" type="Label" parent="Root/TopLeft"]
+layout_mode = 2
+theme_type_variation = &"Small"
+text = "FPS"
+
+[node name="Stats" type="PanelContainer" parent="Root/TopLeft"]
+layout_mode = 2
+
+[node name="Grid" type="GridContainer" parent="Root/TopLeft/Stats"]
+layout_mode = 2
+theme_override_constants/h_separation = 14
+theme_override_constants/v_separation = 4
+columns = 2
+
+[node name="SilverName" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Silver"
+
+[node name="SilverValue" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Silver"
+text = "0"
+
+[node name="GoldName" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Gold"
+
+[node name="GoldValue" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Gold"
+text = "0"
+
+[node name="LivesName" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Lives"
+
+[node name="LivesValue" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+text = "20/20"
+
+[node name="WaveName" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+theme_type_variation = &"Muted"
+text = "Wave"
+
+[node name="WaveValue" type="Label" parent="Root/TopLeft/Stats/Grid"]
+layout_mode = 2
+text = "-"
+
+[node name="ControlsHint" type="Label" parent="Root/TopLeft"]
+layout_mode = 2
+theme_type_variation = &"Small"
+text = "Move: drag
+Remove: right-click
+Esc: pause"
+
+[node name="Breather" type="PanelContainer" parent="Root"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_top = 20.0
+grow_horizontal = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="Rows" type="VBoxContainer" parent="Root/Breather"]
+layout_mode = 2
+
+[node name="BreatherLabel" type="Label" parent="Root/Breather/Rows"]
+layout_mode = 2
+text = "Next wave in 0s"
+horizontal_alignment = 1
+
+[node name="SkipButton" type="Button" parent="Root/Breather/Rows"]
+layout_mode = 2
+text = "Skip"

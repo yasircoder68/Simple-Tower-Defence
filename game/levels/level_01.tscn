@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://m2dnhgidcx04" path="res://systems/level_controller.gd" id="1_map1"]
 [ext_resource type="PackedScene" uid="uid://mjbfh66n8kmp" path="res://levels/tilesets/my_tiles.tscn" id="3_v7ld6"]
-[ext_resource type="Script" uid="uid://cm7yn12a5yqky" path="res://ui/fps_counter.gd" id="3_x0ugi"]
 
 [node name="map1" type="Node2D" unique_id=4869005]
 script = ExtResource("1_map1")
@@ -22,14 +21,6 @@ position = Vector2(442, 439)
 zoom = Vector2(0.575, 0.575)
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1809748140]
-
-[node name="FPSLabel" type="Label" parent="CanvasLayer" unique_id=43899372]
-offset_left = 10.0
-offset_top = 10.0
-offset_right = 11.0
-offset_bottom = 33.0
-scale = Vector2(2, 2)
-script = ExtResource("3_x0ugi")
 
 [node name="StartButton" type="Button" parent="CanvasLayer" unique_id=900413346]
 anchors_preset = 5

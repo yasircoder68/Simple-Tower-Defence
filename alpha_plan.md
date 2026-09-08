@@ -43,7 +43,7 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 | **A1** | "it's a game now" — waves + the boulder | 6% | ✅ built, exported, **not shipped** |
 | **A2** | enemy variety + Rain of Arrows | ~5.5% | ✅ **built, verified, complete** |
 | ~~**A3**~~ | ~~big battles — the horde engine~~ | ~2% spent | **MOVED TO [beta_plan.md](beta_plan.md)** 2026-09-07. D-1 shipped (−40.7%); the rest is beta work |
-| **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | sketch below; **unblocks shipping** |
+| **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | ⏭️ **NEXT** — planned, see [a4_plan.md](a4_plan.md); **unblocks shipping** |
 | **A5** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
 | **A6** | a campaign shape — level select, more levels | ~4% | sketch |
 | — | running throughout: first art batch | ~2% | |
@@ -201,9 +201,21 @@ It is a gameplay feature, not a performance one, and it is the better update hea
 every enemy and per-wave decrements, because today a dying enemy unambiguously belongs to the
 current wave and one counter suffices.
 
-### A4 — MVP UI · ~6% · **the stage that unblocks shipping**
+### A4 — MVP UI · ~6% · **the stage that unblocks shipping** · **NEXT**
 
-*Sketch only — planned properly after A2 and A3 land.*
+**Full work order: [a4_plan.md](a4_plan.md)** (planned 2026-09-08). The sketch below is kept
+because it is what the plan was written from; a4_plan supersedes it where they differ, and it
+differs in three places worth knowing:
+
+- **`/root/map1` survives the main menu** if scenes are *replaced* rather than nested — so the
+  "expect a docs pass" warning below is mostly wrong, and scene replacement became an
+  architectural constraint of the stage rather than an implementation choice.
+- **Pause is one exception, not four rules.** Nothing in the project sets `process_mode` at all,
+  so `get_tree().paused` already stops the horde, both wave Timers and the cooldown tick. Only the
+  pause overlay needs `PROCESS_MODE_ALWAYS`.
+- **Scope was cut deliberately.** A4 takes `ui_plan`'s UI-0, a trimmed UI-1 and UI-4. UI-2
+  (sidebar rebuild), UI-3 (procedural icons) and UI-5 (juice) are deferred — beta already owns an
+  *All UI screens finished* pass, and none of the three is a release blocker.
 
 **This is why nothing has shipped yet.** A1 is built and exported, but the game opens straight
 into a level with no main menu, no way to pause, and an upgrade panel bolted to the side of the
@@ -238,8 +250,8 @@ Plus the two that fall out of doing those properly:
    authoritative guard in the handler). Moving them to a menu-level screen changes where "between
    rounds" is even defined — rethink the guard rather than porting it.
 
-*Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency. That was removed by decision —
-silver and gold only. Fix when A4 is planned.*
+*~~Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency... fix when A4 is planned.~~*
+**Fixed 2026-09-08** during A4 planning — `ui_plan.md` now reads silver/gold throughout.
 
 ### A5 — more ways to build and fight · ~7.5% *(was A4)*
 

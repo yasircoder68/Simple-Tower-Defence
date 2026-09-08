@@ -7,6 +7,10 @@ Rendered version: https://claude.ai/code/artifact/ccaeebb6-0161-4a7d-a72e-ba13bb
 
 **~16h across 6 stages. UI-0 has no dependencies and is buildable today.**
 
+> **Alpha's A4 takes UI-0, a trimmed UI-1, and UI-4** — the minimum that lets a stranger play.
+> **UI-2, UI-3 and UI-5 are deferred to beta**, which owns an *All UI screens finished* pass.
+> None of the three blocks a release. See [a4_plan.md](a4_plan.md).
+
 ---
 
 ## The open decision
@@ -78,11 +82,18 @@ exist before the systems it displays.
 - The MCP toolkit's `placeholders` group generates prototype textures too — faster, lower ceiling
 - Replaces the 181-byte placeholder pixels currently used as button icons
 
-### UI-4 — Screens · ~4h · needs UI-0 + waves, lives, souls
+### UI-4 — Screens · ~4h · needs UI-0 + waves, lives, the economy
 - Wave banner — announces each wave, tweens in and out
-- Game over — waves survived, kills, gold earned, **souls earned**, retry / menu
+- Game over — waves survived, kills, gold awarded, and **silver kept** (there is no "souls"
+  currency; that was removed by decision 2026-09-03 — silver and gold only). **Saying the silver
+  was kept is not a nicety:** a fresh save loses level_01 at wave 4 by design, so a new player's
+  first result screen is a loss, and today it never explains that their progress survived it.
+- **Pause — Resume / Restart / Quit to menu.** There is no pause in the game at all today.
 - Main menu — Begin Defense / Upgrades / Quit
-- Upgrade shop for the roguelite meta (Phase 3 of the main plan)
+- Upgrade shop as its own screen, not a panel wedged beside the tower sidebar
+
+**A4 builds this stage.** See [a4_plan.md](a4_plan.md) for the work order, the pause policy, and
+the scene-replacement constraint that keeps `/root/map1` valid.
 
 ### UI-5 — Juice · ~2h · ongoing
 - Shaders — glow on gold gain, vignette when lives run low, button hover bloom

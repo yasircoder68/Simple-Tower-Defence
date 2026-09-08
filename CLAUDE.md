@@ -5,7 +5,8 @@ You defend a keep against overwhelming undead hordes using medieval towers. Fail
 earn permanent upgrades.
 
 **Status: A1 and A2 complete. A3 PARKED and its remaining work MOVED TO BETA (2026-09-07) —
-see [beta_plan.md](beta_plan.md)'s *The horde engine*. A4 (MVP UI) is next.**
+see [beta_plan.md](beta_plan.md)'s *The horde engine*. A4 (MVP UI) is NEXT and is planned in
+full — [a4_plan.md](a4_plan.md).**
 
 A3 shipped one thing before it was parked: **D-1**, which replaced the pairwise separation scan
 with a crowd-density field — **−40.7% `us_per_enemy`** at 600 packed, ceiling ~250 -> ~420, no
@@ -58,8 +59,10 @@ were **deleted** in the same cleanup — all verified orphans. Pure tower defens
 **In flight: [a2_plan.md](a2_plan.md)** — enemy variety (goblin/skeleton/ogre), the zombie→goblin
 rename, and Rain of Arrows. The other two abilities moved to A5; see that file for progress.
 
-**Planned next: A4 — MVP UI**, per [alpha_plan.md](alpha_plan.md). Main menu, pause, and a real
-upgrade screen. It is the only thing between this project and an itch release.
+**Planned next: [a4_plan.md](a4_plan.md) — A4, MVP UI.** Main menu, pause, and a real upgrade
+screen. It is the only thing between this project and an itch release, and it is fully planned:
+scope, the seven-step ladder, the pause policy, and the acceptance flow (menu -> play -> lose ->
+*understand the silver was kept* -> upgrade -> win).
 
 **[a3_plan.md](a3_plan.md) is PARKED and is now a record, not a work order** — the horde engine
 moved to [beta_plan.md](beta_plan.md) on 2026-09-07. **Read a3_plan's opening section before
@@ -90,8 +93,15 @@ piece, rather than deferring all interface work to step 8).
 **This is now a release blocker, not a polish task.** A1 is built and exported but has not
 shipped, because the game has no main menu, no pause, and an upgrade panel bolted to the play
 screen. `alpha_plan.md` gained a dedicated stage — **A4 — MVP UI** — to fix exactly that, which
-renumbered the old A4/A5 to A5/A6. Note `ui_plan.md` still references a "souls" currency that was
-removed by decision; silver and gold only.
+renumbered the old A4/A5 to A5/A6.
+
+**A4 is planned in full: [a4_plan.md](a4_plan.md)** (2026-09-08), and it is **next**. Three things
+from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
+rather than nested; pause needs **one** `PROCESS_MODE_ALWAYS` exception rather than four
+per-system rules; and A4 deliberately takes only `ui_plan`'s UI-0 + a trimmed UI-1 + UI-4, leaving
+UI-2/3/5 to beta.
+
+*(`ui_plan.md`'s "souls" reference was corrected on 2026-09-08 — silver and gold only.)*
 
 ---
 
@@ -174,6 +184,7 @@ different round, confirmed the silver from the win was still there afterward.
 ```
 zombie game prototype 1/
 ├── CLAUDE.md                ← this file
+├── a4_plan.md               ← NEXT: MVP UI work order (menu, pause, upgrade screen)
 ├── alpha_plan.md            ← roadmap: itch releases, mechanics-first (40%)
 ├── beta_plan.md             ← roadmap: Steam demo, final art (40%)
 ├── final_plan.md            ← roadmap: paid release (20%)
@@ -201,8 +212,10 @@ zombie game prototype 1/
     ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd,
     │                          wave_manager.gd, ability_manager.gd, enemy_types.gd,
     │                          bench.gd (dev-only horde benchmark)
-    ├── ui/                  ← build_sidebar/, ghost_tower/, aim_marker/, ability_bar/,
-    │                          round_ui.gd, fps_counter.gd
+    ├── ui/                  ← palette.gd + build_theme.gd -> game_theme.tres (A4's U-0),
+    │                          pause_menu/ (U-1), hud/ (U-2), build_sidebar/,
+    │                          ghost_tower/, aim_marker/, ability_bar/,
+    │                          round_ui.gd (throwaway, dies at U-6)
     ├── assets/              ← SHARED only: 1_pixel.png, audio/{sfx,music}/, fonts/
     ├── testbed/             ← clean_area.tscn/.gd (quarantined harness)
     └── addons/godot_mcp_toolkit/   ← 277 files, vendored; not your code
@@ -498,6 +511,33 @@ transform there sees the origin and a zero angle. Boulder touches only `sprite.p
 `_ready()` and reads `global_position` at impact; rain reads both per tick. **This is the single
 easiest way to break a new ability**, and directional aiming doubled the surface.
 
+### Pause (A4's U-1)
+
+**The entire policy is one line: everything inherits; only `ui/pause_menu/` is
+`PROCESS_MODE_ALWAYS`.**
+
+Nothing else in the project sets `process_mode` at all, so `get_tree().paused = true` already
+stops the horde, both of `wave_manager`'s Timers, `ability_manager`'s cooldown tick and node-bound
+Tweens. Verified by state, not by looking: an enemy position and an ability cooldown were both
+byte-identical after 12s paused, and the breather `Timer` sat **0.93s from firing for 15 seconds**
+without firing, then resumed normally.
+
+Three things that a later change could quietly break:
+
+- **Never give the HUD `PROCESS_MODE_ALWAYS`** — it would keep animating behind the pause screen.
+  Keep it on its own `CanvasLayer` at the default mode.
+- **The pause input handler must live on the `ALWAYS` node.** On a paused node it never runs, and
+  the only way out of a pause is to kill the process.
+- **Every cooldown, timer and duration must be DELTA-ACCUMULATED, never a wall-clock deadline.**
+  `Time.get_ticks_msec()` targets survive a pause and snap to zero on resume. `ability_manager`
+  does `remaining = max(remaining - delta, 0.0)`, which is why it freezes correctly.
+
+`pause_menu` emits `resume_requested` / `restart_requested` / `quit_requested`; `level_controller`
+decides what they mean. **Restart goes through `start_new_round()`** — the same path "Play Again"
+uses — and `resume()` runs *before* the signal, because restarting into a still-paused tree is a
+soft lock that looks exactly like a crash. Pausing is armed only inside a round, matching the rule
+that abilities are inert outside `IN_ROUND`.
+
 ### Round lifecycle
 
 `level_controller.gd` owns a `RoundState` enum (`PRE_ROUND` → `IN_ROUND` → `ROUND_WON`/`ROUND_LOST`).
@@ -575,6 +615,20 @@ auto-generated names like `@Button@42`, gettable at runtime via
 - Debug output goes through `print()` gated on an export flag (`level_controller.gd` has `debug_logging`).
   **Never `FileAccess.open("res://…", WRITE)`** — see Known issues #1.
 - Prefer MCP `node_set_property` + `editor_save_scene` over hand-editing `.tscn`.
+- **NEVER edit `ui/game_theme.tres` by hand — it is generated.** Edit `ui/palette.gd` and re-run:
+  ```
+  Godot_v4.6.3-stable_win64.exe --headless --path "<repo>/game" --script res://ui/build_theme.gd
+  ```
+  The whole look resolves from ~20 constants in `palette.gd`, so the aesthetic is a parameter, not
+  an architecture. A hand-edited `.tres` is a merge-conflict magnet of sub-resource ids and would
+  be silently overwritten by the next regeneration.
+- **Build every new panel CONTENT-SIZED** (`PanelContainer` sizing to its child), never with a
+  hardcoded height. A fixed size is a latent break every time the palette moves — UI-0 broke two of
+  `round_ui`'s three panels the moment the theme landed. Let the theme's stylebox content margins
+  do the padding instead of manual insets.
+- **Line endings are MIXED in this project.** `ui/round_ui.gd` is CRLF; most other scripts are LF.
+  MCP `script_edit` matches byte-for-byte, so an `old_string` copied with the wrong endings fails
+  with a bare `NOT_FOUND` that looks like a typo. Check before assuming the text moved.
 
 ---
 
@@ -1081,6 +1135,30 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   `RoundUI/@Panel@24/@VBoxContainer@25/PlayAgainButton`, and the indices shift whenever a panel is
   added. Resolve at runtime with `find_child("Name", true, false).get_path()`, then feed that to
   `click_node`.
+- **`Input.is_action_just_pressed()` POLLS — `set_input_as_handled()` cannot suppress it.** These
+  are two different input paths, and mixing them silently breaks key handling. `ui/fps_counter.gd`
+  polled `ui_cancel` and called `get_tree().quit()`; when U-1 put the pause screen on the same key,
+  **Escape opened the pause menu AND quit the process in the same frame.** Prefer `_input` /
+  `_unhandled_input` for anything a UI layer might need to consume.
+- **A feature bound to an input is not tested until the INPUT is tested.** U-1's pause was verified
+  by calling `pause()` directly and shipped with Escape quitting the game. Drive the real key with
+  `input_simulate` (`{"event_type": "action", "event_data": {"action": "...", "pressed": true}}`).
+- **`start_new_round()` does not emit `round_started`, and it has now caught this project THREE
+  times** — the result panel stayed on screen, the lives readout went stale, and the HUD read
+  "Wave 5/5" in PRE_ROUND. Any UI holding round-scoped state needs an explicit reset call on that
+  path; a lifecycle signal does not cover every entry point back to the same state.
+- **MCP `scene_get_tree` silently UNDER-REPORTS a hand-written `.tscn`.** `pause_menu.tscn` was
+  authored by hand; `scene_get_tree` showed only its first three nodes, with **no error**, through
+  a filesystem rescan and a reopen — it looked exactly like a scene that failed to parse. At
+  runtime the full tree was present and correct. **Verify a hand-written scene by instantiating it
+  and probing `has_node()`, not by reading the editor-side tree.** (This is also the reason
+  CLAUDE.md prefers the MCP scene tools for authoring.)
+- **A project-wide `Theme` is not a cosmetic change — it resizes every control.** `gui/theme/custom`
+  cascades to every `Control`, and the button styleboxes carry content margins Godot's defaults do
+  not. When UI-0 landed, `round_ui`'s upgrade panel overflowed its own background by three rows and
+  its breather panel dropped to exactly **zero** pixels of slack. **Measure, do not look:** compare
+  `control.get_combined_minimum_size()` against `control.size` — the breather panel screenshotted
+  fine while being one font tweak from clipping.
 - **`set_anchors_preset()` alone leaves a procedurally created Control at size (0,0)** — children
   anchored to it then centre on an empty rect and land off-screen. Set `anchor_*` **and**
   `offset_*` explicitly. Cost an hour on the ability bar.

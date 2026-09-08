@@ -168,6 +168,11 @@ var enemies_to_resolve: int = 0
 var silver_earned_this_round: int = 0
 
 var round_ui: CanvasLayer = null
+## The pause screen. Round-scoped like every other manager here.
+var pause_menu: CanvasLayer = null
+## The in-round HUD (A4's U-2). Owns the status readout and the breather that
+## round_ui used to carry.
+var hud: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -212,10 +217,32 @@ func _ready() -> void:
 	ghost = ghost_scene.instantiate()
 	add_child(ghost)
 
+	# Built BEFORE round_ui so the suppression flag below is never a guess:
+	# the HUD demonstrably exists by the time round_ui decides what to skip.
+	hud = preload("res://ui/hud/hud.tscn").instantiate()
+	add_child(hud)
+	hud.setup(self)
+
 	round_ui = preload("res://ui/round_ui.gd").new()
 	round_ui.name = "RoundUI"
 	add_child(round_ui)
-	round_ui.setup(self)
+	# The HUD owns the status readout and the breather now; round_ui keeps only
+	# the result and upgrade panels until U-3 and U-5 replace those too.
+	round_ui.setup(self, true)
+
+	# Added LAST so it sits below round_ui in the tree and therefore ABOVE it in
+	# input order - _unhandled_input runs in reverse tree order, and Escape must
+	# reach the pause screen before anything else can consume it.
+	#
+	# It is the ONLY node in the project at PROCESS_MODE_ALWAYS (set in its
+	# scene). Everything else inherits, so get_tree().paused stops the horde, both
+	# wave Timers and the ability cooldown tick with no per-system wiring. See
+	# ui/pause_menu/pause_menu.gd for the whole policy.
+	pause_menu = preload("res://ui/pause_menu/pause_menu.tscn").instantiate()
+	add_child(pause_menu)
+	pause_menu.resume_requested.connect(_on_pause_resumed)
+	pause_menu.restart_requested.connect(_on_pause_restart)
+	pause_menu.quit_requested.connect(_on_pause_quit)
 
 
 ## Fails at game start instead of at the first kill of the first round.
@@ -460,6 +487,10 @@ func _start_round() -> void:
 	round_state = RoundState.IN_ROUND
 	base_health.reset()
 	ability_manager.reset()
+	# Pausing is armed only inside a round. A pause screen over the build phase
+	# would stop nothing — the same reasoning that makes abilities inert outside
+	# IN_ROUND.
+	pause_menu.setup(true)
 	# enemies_to_resolve is no longer seeded here: wave_manager sets it per
 	# wave, topping it up at each wave boundary so this controller's existing
 	# decrement-and-check path still decides when the round is won.
@@ -481,6 +512,33 @@ func _start_round() -> void:
 ## map change resets placement, which happens for free: loading a different
 ## level scene destroys these nodes with it. If levels ever start swapping
 ## in-place without a scene reload, call _clear_placed_towers() at that point.
+# --- Pause -------------------------------------------------------------
+#
+# The pause screen emits intent; this decides what the intent MEANS. Same
+# signal-driven split as every other manager here — the screen does not reach
+# into the round lifecycle itself.
+
+func _on_pause_resumed() -> void:
+	pass # Unpausing is the screen's own job; nothing round-scoped to restore.
+
+
+## Restart goes through start_new_round() — the SAME path "Play Again" uses —
+## rather than re-implementing a reset. That path is tested, and it is also the
+## one that deliberately does NOT emit round_started, which round_ui already
+## knows how to handle. A bespoke restart here would rediscover that the hard
+## way.
+func _on_pause_restart() -> void:
+	start_new_round()
+
+
+func _on_pause_quit() -> void:
+	# Quit to DESKTOP for now. A4's U-4 adds the main menu, at which point this
+	# becomes quit-to-menu and a separate quit-to-desktop sits below it. Until
+	# then there is no graceful way out of the game at all, so this is a real
+	# gain rather than a placeholder.
+	get_tree().quit()
+
+
 func start_new_round() -> void:
 	_clear_all_enemies()
 	# Reset lives here as well as in _start_round(), so the pre-round HUD shows
@@ -490,6 +548,13 @@ func start_new_round() -> void:
 	wave_manager.reset()
 	ability_manager.reset()
 	round_state = RoundState.PRE_ROUND
+	pause_menu.setup(false)
+	# start_new_round() deliberately does NOT emit round_started (only the Start
+	# button's _start_round() does), and base_health.reset() emits no life_lost,
+	# so nothing else would move the HUD back to full lives here. round_ui hit
+	# this exact trap twice; the HUD gets told directly rather than trusting a
+	# lifecycle signal to cover every entry point.
+	hud.reset_for_new_round()
 	$CanvasLayer/StartButton.show()
 
 
@@ -548,6 +613,7 @@ func _end_round(won: bool) -> void:
 	# stale spawn coroutine bleed into the next round.
 	wave_manager.abort()
 	ability_manager.set_enabled(false)
+	pause_menu.setup(false)
 
 	var gold_awarded := 0
 	if won:

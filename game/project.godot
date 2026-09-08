@@ -30,6 +30,10 @@ window/size/viewport_height=720
 
 enabled=PackedStringArray("res://addons/godot_mcp_toolkit/plugin.cfg")
 
+[gui]
+
+theme/custom="res://ui/game_theme.tres"
+
 [importer_defaults]
 
 texture={
