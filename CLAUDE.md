@@ -284,6 +284,21 @@ field into one direction vector per cell. Enemies just read their cell's vector.
 - Diagonals cost the same as orthogonals (`cost + 1`), which makes this a Chebyshev field.
   Known wart — see Known issues.
 
+**There are TWO tilemaps in `level_01`, and only one of them is the game.** `my_tiles` is the
+**logic layer** — 50px cells, `visible = false`, and the ONLY thing `level_controller` reads
+(`@onready var tile_map: TileMap = $my_tiles`). `grass_biome` is **cosmetic only** — 8px cells at
+scale 1.0, drawn but never queried. The two lattices do not divide evenly (50 / 8 = 6.25), so they
+cannot be merged by a scale value; that is why the split exists.
+
+`my_tiles`'s wall cells are **DERIVED from `grass_biome`**, not hand-drawn: a 50px cell is a wall
+when its wall-grass area >= its floor-grass area, computed by exact rectangle overlap. On the
+2026-09-09 map that yields **175 wall cells and 156 floor cells**, and the painted walls seal the
+play area with no leaks — so no artificial boundary ring is needed, and towers stay buildable
+only where wall art actually is. Because the logic lattice is 6.25x coarser than the art, the
+collision edge can sit up to **25px** from the grass edge the player sees. That is the accepted cost
+of the split; it goes away only when the tiles are re-authored at 16px / scale 3.125 per a5_plan's
+manifest, at which point one lattice can serve both.
+
 ### Enemy movement
 Enemies are `Area2D` and move themselves by assigning `global_position`. **There is no physics
 movement anywhere** — no `move_and_slide`, no rigid bodies. Wall collision is a manual
@@ -1164,6 +1179,17 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
 - **`get_tree().paused` is tree-wide and SURVIVES a scene change.** Always unpause before
   `change_scene_to_file()`, or the next scene loads paused with dead buttons. Both the pause screen
   and the result screen call `resume()` before emitting.
+- **REPAINTING `grass_biome` DOES NOT CHANGE THE GAME, AND FAILS SILENTLY.** The art layer and the
+  logic layer are separate nodes (see Flow-field pathfinding); `level_controller` reads only
+  `my_tiles`. Editing the map in `grass_biome` alone leaves `walls_dict` stale — and *clearing*
+  `my_tiles` empties it, which cost a session on 2026-09-09: **`walls_dict` 0, `flow_field` 1 cell,
+  density grid collapsed 53x31 -> 6x6**, no tower placeable anywhere, `is_wall()` false everywhere,
+  and every enemy on `enemy.gd`'s zero-flow fallback (a straight beeline at `end_point` through
+  walls) — 32 spawned, 0 kills, 20/20 lives gone in wave 1. **Nothing errors.** The `flow_field`
+  collapse is the sneakiest part: the BFS bounds itself with `tile_map.get_used_rect().grow(15)`,
+  and an EMPTY used_rect grows to (-15,-15)..(15,15), which does not contain the end cell (21, 8).
+  After any map edit, re-derive `my_tiles` and check **`walls_dict.size()` and `flow_field.size()`
+  are both non-trivial** before concluding anything else is wrong.
 - **The scene file is `levels/level_01.tscn` but its ROOT NODE is still named `map1`** — renaming
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the
