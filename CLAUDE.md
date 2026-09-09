@@ -102,13 +102,20 @@ met:** the game boots to a menu, plays, pauses, ends on a result screen that tel
 their silver was kept, has an upgrade shop reachable from two places, and shows no debug UI
 anywhere. **A4 was the only thing blocking an itch release.**
 
-**A5 — pre-ship polish — is planned and next: [a5_plan.md](a5_plan.md).** Art, audio, effects, a
+**A5 — pre-ship polish — is IN PROGRESS: [a5_plan.md](a5_plan.md).** Art, audio, effects, a
 settings menu, player-controlled camera zoom/pan, and export hygiene. It carries the **asset
 manifest**: 12 art files, 16 audio files, 9 effects, with exact paths and pixel sizes.
 
-**Two things A5 exists to fix that are easy to miss:** the exported build currently packs the whole
-MCP dev addon and **starts a WebSocket listener on the player's machine**, and the level is drawn
-entirely from `1_pixel.png` — every wall is a white square and there is no floor at all. Three things
+**Where it stands (2026-09-09):** the **art import is 10/12 done and verified** — both towers with
+firing animations, all three enemies with run animations, arrow, fireball and boulder, plus the
+build ghost and sidebar icons. **Outstanding: the wall and floor tiles.** A grass floor was built
+and then removed by decision; the generator approach is recorded in a5_plan if it is revisited.
+
+**A5-1 through A5-4 are NOT started**, and two of them matter more than they look:
+- **The exported build packs the whole MCP dev addon and starts a WebSocket listener on the
+  player's machine.** A5-1 fixes it in ~15 minutes and needs no assets — the natural next step.
+- **There is still no audio at all**, and none has been supplied, so A5-2 and the audio half of the
+  settings screen are blocked on files. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
 rather than nested; pause needs **one** `PROCESS_MODE_ALWAYS` exception rather than four
 per-system rules; and A4 deliberately takes only `ui_plan`'s UI-0 + a trimmed UI-1 + UI-4, leaving
@@ -643,6 +650,27 @@ for exactly this reason.
 - Debug output goes through `print()` gated on an export flag (`level_controller.gd` has `debug_logging`).
   **Never `FileAccess.open("res://…", WRITE)`** — see Known issues #1.
 - Prefer MCP `node_set_property` + `editor_save_scene` over hand-editing `.tscn`.
+- **A sprite's world size is a GAMEPLAY number when the entity has a `hit_radius`.** An enemy's
+  sprite must measure exactly `2 x hit_radius` in world px (goblin 32, skeleton 30, ogre 70), because
+  since A3's S-1 projectiles hit by distance test against that value. Break the equality and the
+  hitbox silently stops matching what the player sees; change `hit_radius` to suit new art and it is
+  a difficulty change that per-wave silver will detect.
+- **FLIP directional art, do not rotate it — unless the sprite has no "up".** Every character here
+  (both tower units, all three enemies) is drawn 3/4-overhead with a head above a body, so rotating
+  one makes it read as lying on its side; `flip_h` keeps it upright. An arrow is the exception and
+  correctly rotates, because it is an object aligned with its own flight. **The test is whether the
+  sprite has an implied vertical, not whether it is directional.**
+- **Animation on anything that exists in bulk must write only on CHANGE.** Up to 152 enemies animate
+  per frame; assigning `sprite.frame` unconditionally would be ~150 redundant Variant property
+  writes a frame. Cache the current frame and assign only when it differs. Derive the frame rate
+  from DISTANCE travelled, not time, or fast and slow enemies animate at the same cadence.
+- **A tower's appearance is derived in three places and must never be duplicated in any of them** —
+  the placed tower, the build ghost (`ui/ghost_tower/`) and the sidebar icon
+  (`ui/build_sidebar/`). The latter two **instantiate the real tower scene**; the ghost tints it and
+  the sidebar renders it into a `SubViewport`. Both set **`PROCESS_MODE_DISABLED` before
+  `add_child`**, because a tower scene is a *live* tower that would otherwise join `tower_unit`,
+  start its fire Timer and spawn projectiles. Compositing textures by hand instead is what let the
+  old ghost drift to a hardcoded scale of 3 and 9.
 - **NEVER edit `ui/game_theme.tres` by hand — it is generated.** Edit `ui/palette.gd` and re-run:
   ```
   Godot_v4.6.3-stable_win64.exe --headless --path "<repo>/game" --script res://ui/build_theme.gd
@@ -945,9 +973,10 @@ Still open, roughly by value:
    archer's arrow should re-skin the barrage too, and two copies would let them silently diverge.
    Its ground-zone rectangle is still the shared `1_pixel.png`. If the artist wants them to differ,
    drop an `arrow.png` into `entities/abilities/rain_of_arrows/` and repoint the `preload`.
-8. **The boulder has no PNG of its own.** It uses the shared `assets/1_pixel.png` with a brown
-   modulate, the same placeholder pattern `goblin.tscn` uses. The folder exists, so the artist
-   brief ("replace the PNG in each entity folder") just needs a `boulder.png` dropped in.
+8. ~~**The boulder has no PNG of its own.**~~ **CLOSED 2026-09-08** — `boulder.png` (16x16) landed
+   in A5 at `scale = 2.5` (40 world px) with the brown modulate removed. The colocation brief
+   ("replace the PNG in each entity folder") worked exactly as intended: a drop-in file plus a
+   scale.
 
 **Fixed in the `dd49e82` restructure:** the vestigial `TileMap` node, dead `build_ui.gd`, the
 `asserts/` typo (now `assets/`), and the stale `damage`/`wizard_radius` scene overrides.
@@ -1204,6 +1233,9 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   times** — the result panel stayed on screen, the lives readout went stale, and the HUD read
   "Wave 5/5" in PRE_ROUND. Any UI holding round-scoped state needs an explicit reset call on that
   path; a lifecycle signal does not cover every entry point back to the same state.
+- **The editor rewrites a deleted `.tscn` from its cache on the next filesystem rescan.** Deleting
+  `floor_tiles.tscn` while the editor was open, then calling a rescan, brought the file back.
+  Re-delete after the rescan and confirm it stayed gone.
 - **MCP `scene_get_tree` silently UNDER-REPORTS a hand-written `.tscn`.** `pause_menu.tscn` was
   authored by hand; `scene_get_tree` showed only its first three nodes, with **no error**, through
   a filesystem rescan and a reopen — it looked exactly like a scene that failed to parse. At

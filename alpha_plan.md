@@ -44,7 +44,7 @@ runs. That is a small gap, and closing it is enough to justify a first public bu
 | **A2** | enemy variety + Rain of Arrows | ~5.5% | ✅ **built, verified, complete** |
 | ~~**A3**~~ | ~~big battles — the horde engine~~ | ~2% spent | **MOVED TO [beta_plan.md](beta_plan.md)** 2026-09-07. D-1 shipped (−40.7%); the rest is beta work |
 | **A4** | **MVP UI — menu, pause, upgrade screen** | ~6% | ✅ **COMPLETE 2026-09-08** ([a4_plan.md](a4_plan.md)). **Shipping is unblocked** |
-| **A5** | **pre-ship polish — art, audio, effects, settings, camera, export hygiene** | ~5% | ⏭️ **NEXT** — planned, see [a5_plan.md](a5_plan.md) |
+| **A5** | **pre-ship polish — art, audio, effects, settings, camera, export hygiene** | ~5% | 🚧 **IN PROGRESS** — art 10/12 done; export hygiene, audio, settings, camera not started ([a5_plan.md](a5_plan.md)) |
 | **A6** | more ways to build and fight — towers, gold sinks, slots, the last two abilities | ~7.5% | sketch |
 | **A7** | a campaign shape — level select, more levels | ~4% | sketch |
 | — | running throughout: first art batch | ~2% | |
@@ -254,7 +254,7 @@ Plus the two that fall out of doing those properly:
 *~~Note: `ui_plan.md`'s UI-4 stage still mentions a "souls" currency... fix when A4 is planned.~~*
 **Fixed 2026-09-08** during A4 planning — `ui_plan.md` now reads silver/gold throughout.
 
-### A5 — pre-ship polish · ~5% · **NEXT**
+### A5 — pre-ship polish · ~5% · 🚧 **IN PROGRESS**
 
 **Full work order: [a5_plan.md](a5_plan.md)** (planned 2026-09-08), which carries the complete
 asset manifest — 12 art files, 16 audio files, 9 effects — plus the five-strand order.
@@ -264,9 +264,11 @@ makes the first public build not embarrassing.
 
 Four strands:
 
-- **Tower art.** The archer and wizard sprites are 162–309 byte placeholders. The user has real
-  assets to import. *(Note this pulls art forward from beta, deliberately and narrowly — two
-  towers, not the whole commission.)*
+- **Entity art — DONE (2026-09-09).** Both towers with firing animations, all three enemies with
+  run animations, arrow, fireball, boulder, plus the build ghost and sidebar icons. Verified by a
+  full round reconciling to 904 silver / 407 kills / 19 lives. **Outstanding: the wall and floor
+  tiles** — the map is still `1_pixel.png` stretched x50. *(This pulls art forward from beta,
+  deliberately and narrowly — the listed entities, not the whole commission.)*
 - **Settings menu** — music volume, SFX volume, resolution, fullscreen, vsync. Reachable from
   the main menu and from the pause screen.
 - **Audio**, because volume sliders over a silent game are worse than no sliders. The project has

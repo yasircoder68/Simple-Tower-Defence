@@ -6,9 +6,17 @@ extends Area2D
 ## Since A3's S-1 enemies are Node2D, so area_entered can never fire - the hit
 ## is a distance test against the target this arrow is already homing on.
 ##
-## THIS ARROW'S OWN radius (CircleShape2D 4.04 at scale 5). The enemy's
-## hit_radius is ADDED to it, because that is what area-vs-area collision did:
-## two shapes touch when the gap closes to the sum of their extents.
+## THIS ARROW'S OWN radius. The enemy's hit_radius is ADDED to it, because that
+## is what area-vs-area collision did: two shapes touch when the gap closes to
+## the sum of their extents.
+##
+## THE 20 IS A GAMEPLAY NUMBER AND IS NO LONGER DERIVABLE FROM THE SCENE. It
+## originally came from the CollisionShape2D's 4.04 radius at the node's old
+## scale of 5. A5 dropped that scale to 2 for the real 8x8 art, so the shape now
+## measures ~8 — but the shape has been vestigial since S-1 (hits are a distance
+## test, and nothing masks layer 3), and CHANGING THIS CONSTANT TO MATCH IT
+## WOULD MORE THAN HALVE EVERY TOWER'S REACH. Do not "fix" it to agree with the
+## scene; the scene is the part that stopped mattering.
 ##
 ## Getting this wrong is not subtle. S-1's first attempt used a single 18px
 ## radius for the whole test - roughly half the true arrow+goblin reach and a

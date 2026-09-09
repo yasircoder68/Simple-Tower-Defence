@@ -1,17 +1,15 @@
 [gd_scene format=3 uid="uid://bmorbfeljl0f2"]
 
 [ext_resource type="Script" uid="uid://bdou6wojgmw17" path="res://entities/enemies/enemy.gd" id="1_enemy"]
-[ext_resource type="Texture2D" uid="uid://c5b6alif1chmk" path="res://assets/1_pixel.png" id="2_efgh"]
+[ext_resource type="Texture2D" path="res://entities/enemies/goblin/goblin.png" id="2_goblin"]
 
 [node name="Goblin" type="Node2D" unique_id=302756777]
 z_index = 10
-scale = Vector2(0.5, 0.5)
 script = ExtResource("1_enemy")
 enemy_id = "goblin"
 metadata/_edit_group_ = true
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=899741041]
-modulate = Color(1, 0, 0, 1)
-scale = Vector2(64, 64)
-texture = ExtResource("2_efgh")
-
+scale = Vector2(2, 2)
+texture = ExtResource("2_goblin")
+hframes = 2

@@ -97,6 +97,12 @@ static var bench_skip_position_write: bool = false
 
 const ARRIVAL_RADIUS := 30.0
 
+## World px travelled per animation frame. Deriving the frame rate from DISTANCE
+## rather than time is what stops a 280 px/s skeleton looking like it is skating
+## while a 100 px/s goblin's legs blur: both advance a frame every 14px of
+## ground covered. Resolved once at spawn, never per frame.
+const ANIM_STEP_PX := 14.0
+
 const EnemyTypes := preload("res://systems/enemy_types.gd")
 
 ## Which row of EnemyTypes.TYPES this scene is. The ONLY stat-ish thing a
@@ -128,6 +134,27 @@ var separation_weight: float = 1.0
 var hp: int = 10
 
 @onready var map = get_parent()
+@onready var sprite: Sprite2D = get_node_or_null("Sprite2D")
+
+# --- Run animation ----------------------------------------------------------
+#
+# Every enemy sheet is two frames. This runs on up to 152 enemies per frame at
+# wave 5, so it is built to cost almost nothing: one multiply, one int cast and
+# one compare, and it TOUCHES THE SPRITE ONLY WHEN THE FRAME ACTUALLY CHANGES.
+# A naive version assigning sprite.frame every frame would be ~150 Variant
+# property writes per frame to buy nothing — D-1 did not free up that budget so
+# it could be spent redundantly setting the same value.
+
+## Frames per second of animation, as a rate, so the hot path multiplies instead
+## of dividing. Set in _resolve_stats() from speed.
+var _anim_rate: float = 0.0
+## Cached so the sprite is only written on a real change.
+var _anim_frame: int = 0
+var _facing_left: bool = false
+var _anim_time: float = 0.0
+## False for anything without a 2-frame sheet — a future single-frame enemy, or
+## a test harness scene — so this costs one bool test rather than erroring.
+var _has_anim: bool = false
 
 ## Whether the map provides a crowd-density field. Probed once at spawn, the
 ## same pattern as _has_round_contract — testbed/clean_area.tscn has no field
@@ -151,6 +178,12 @@ func _ready() -> void:
 
 	_has_density = map.has_method("get_density_push")
 
+	_has_anim = sprite != null and sprite.hframes > 1
+	# A random phase, for the same reason archer.gd staggers its first shot: a
+	# wave that spawns together would otherwise animate in perfect lockstep and
+	# read as one object rather than a crowd.
+	_anim_time = randf() * 10.0
+
 	_on_spawn()
 
 
@@ -167,6 +200,10 @@ func _resolve_stats() -> void:
 	ignore_separation = stats["ignore_separation"]
 	separation_weight = stats["separation_weight"]
 	hp = max_hp
+
+	# Frames per second = (px per second) / (px per frame). Computed here so the
+	# per-frame path is a multiply.
+	_anim_rate = speed / ANIM_STEP_PX
 
 
 # --- Behaviour hooks, empty in the base ---------------------------------
@@ -255,7 +292,34 @@ func _physics_process(delta: float) -> void:
 	if desired_dir == Vector2.ZERO:
 		desired_dir = flow_dir
 
+	_advance_run_anim(delta, desired_dir)
 	_move_with_wall_slide(desired_dir * speed * delta)
+
+
+## Two-frame walk cycle plus facing. Deliberately placed AFTER the
+## BENCH_NO_MOVE early-out above: an enemy the bench has frozen should not be
+## animating either, or the ablation would be measuring cosmetics it claims to
+## have removed.
+func _advance_run_anim(delta: float, dir: Vector2) -> void:
+	if not _has_anim:
+		return
+
+	_anim_time += delta
+	# & 1 rather than % 2 — same result for a non-negative int, and it says
+	# "two frames" rather than "some modulus".
+	var next_frame := int(_anim_time * _anim_rate) & 1
+	if next_frame != _anim_frame:
+		_anim_frame = next_frame
+		sprite.frame = next_frame
+
+	# Directional art, flipped rather than rotated — the same conclusion the
+	# towers reached: these sprites are drawn 3/4-overhead with the head above
+	# the body and the weapon on the right, so rotating one lays it on its side.
+	if dir.x != 0.0:
+		var face_left := dir.x < 0.0
+		if face_left != _facing_left:
+			_facing_left = face_left
+			sprite.flip_h = face_left
 
 
 # Walk into the wall, and if that fails try each axis on its own so the horde

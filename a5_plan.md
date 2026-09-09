@@ -1,6 +1,27 @@
 # A5 — "Pre-Ship Polish" — Implementation Work Order
 
-**Status: PLANNED 2026-09-08. Nothing built yet.**
+**Status: IN PROGRESS. A5-5 (art import) is largely done — 10 of the 12 manifest files are in and
+verified. A5-1 through A5-4 (export hygiene, audio, settings, camera) are NOT started.**
+
+**Art went first, out of the planned order, at the user's direction** — they had assets ready. The
+five-strand order below is otherwise unchanged and still correct for what remains.
+
+| | State |
+|---|---|
+| A5-1 export hygiene | not started — **~15 min, no assets needed, do it first** |
+| A5-2 audio foundation | not started — **no audio files supplied yet** |
+| A5-3 settings | not started |
+| A5-4 camera zoom + pan | not started |
+| A5-5 art import | **10/12 done** — see the DONE blocks below |
+
+**Manifest: done** — archer tower + unit, wizard tower + unit, goblin, skeleton, ogre, arrow,
+fireball, boulder. **Outstanding** — #11 wall tile, #12 floor tile.
+
+> **A grass floor WAS built and then removed at the user's request** (2026-09-09: *"it's not that
+> good right now"*). The generator approach worked and is worth repeating when better art exists:
+> a headless script painting a `TileMapLayer`, 16px tiles at `scale = 3.125` = exactly one 50px
+> game cell, weighted variants, fixed seed. It was never committed. **The walls are still
+> `1_pixel.png` stretched x50** — white squares, and the last placeholder in the game.
 
 A4 unblocked shipping. **This is the pass that makes the first public build not embarrassing** —
 real art instead of coloured rectangles, sound instead of silence, a settings menu, a camera the
@@ -209,7 +230,7 @@ Two things that follow:
   assume it** — and note CLAUDE.md's standing warning that `get_global_mouse_position()` is not
   reliably driven by `input_simulate`, which zoom makes worse. Verify by state, not by coordinates.
 
-### A5-5 — Art import · after A5-4
+### A5-5 — Art import · **LARGELY DONE** *(taken first, out of order)*
 
 Art is judged at a zoom, and A5-4 defines the range, so this comes last.
 
@@ -280,6 +301,63 @@ Art is judged at a zoom, and A5-4 defines the range, so this comes last.
 > **Three places now derive the tower's appearance from one source** — the placed tower, the build
 > ghost, and the sidebar icon — and none of them can drift from the scene again.
 
+> **Enemies — DONE.** `goblin.png`, `skeleton.png` and `ogre.png` imported, each a two-frame run
+> sheet. All three `modulate` tints removed (they existed only because the "art" was a white
+> pixel), root scales reset to 1.0, `hframes = 2`, and sprite scales chosen so **world size = 2 x
+> `hit_radius`** exactly:
+>
+> | | frame px | scale | world px | 2 x hit_radius |
+> |---|---|---|---|---|
+> | goblin | 16x16 | 2.0 | 32 | 32 |
+> | skeleton | 16x16 | 1.875 | 30 | 30 |
+> | ogre | 32x32 | 2.1875 | 70 | 70 |
+>
+> **The skeleton arrived as a clean 12x upscale** — 384x192, i.e. 32x16 of logical pixels blown up.
+> Verified every 12x12 block was uniform, then point-sampled it down to 32x16 (lossless, 7134 ->
+> 420 bytes). Left at 192x192 per frame it would have needed `scale = 0.156`, and downscaling
+> blown-up pixel art by a non-integer factor drops pixels unevenly. Original kept in the scratchpad.
+>
+> **Run animation is distance-based, not time-based.** Frames advance every `ANIM_STEP_PX` (14) of
+> ground covered, so a 280 px/s skeleton animates 2.8x faster than a 100 px/s goblin instead of
+> skating. The rate is resolved once at spawn (`speed / ANIM_STEP_PX`) so the hot path multiplies
+> rather than divides, and each enemy gets a **random phase** — otherwise a wave that spawns
+> together animates in lockstep and reads as one object rather than a crowd.
+>
+> **It touches the sprite only when the frame actually changes.** This runs on up to 152 enemies a
+> frame; assigning `sprite.frame` unconditionally would be ~150 redundant Variant property writes
+> per frame. D-1 did not free that budget up to spend it setting the same value. It also sits after
+> the `BENCH_NO_MOVE` early-out, so a frozen bench enemy does not animate either — otherwise the
+> ablation would measure cosmetics it claims to have removed.
+>
+> `flip_h` for facing, same conclusion as the towers: this art is drawn 3/4-overhead with the
+> weapon on the right.
+>
+> **Acceptance passed: a full round earned 904 with 407 kills and 19/20 lives.** Against the 906
+> maximum and 408 spawned, that is 2 silver short, 1 life lost and 1 enemy unkilled — **exactly one
+> escaped small enemy, agreed by all three counters**. The hitboxes did not move.
+
+> **Arrow and boulder — DONE.** `arrow.png` (8x8) at `scale = 2` -> 16 world px; `boulder.png`
+> (16x16) at `scale = 2.5` -> 40 world px, tint removed, which **closes Known issue 8**.
+>
+> **The arrow ROTATES, and that is not a contradiction of the flip rule.** `arrow.gd` already did
+> `rotation = direction.angle()`, and the new art points +x with fletching behind, so it worked
+> untouched. Characters flip because they are drawn 3/4-overhead with a head above a body; an arrow
+> has no "up" — it is an object aligned with its own flight. **The test is whether the sprite has an
+> implied vertical, not whether it is directional.**
+>
+> **A trap found while setting the arrow's scale.** `arrow.gd`'s `PROJECTILE_RADIUS = 20.0` was
+> documented as "CircleShape2D 4.04 at scale 5" — a derivation from the scene. Dropping the node
+> scale 5 -> 2 for the real art makes that shape measure ~8, so anyone later "correcting" the
+> constant to agree with the scene would **more than halve every tower's reach**. The shape has been
+> vestigial since S-1 (hits are a distance test; nothing masks layer 3), so the constant is the real
+> number and the scene is the part that stopped mattering. The comment now says so explicitly.
+>
+> Old visual scale was 5, i.e. a 40px arrow — **larger than a goblin**. At 16px it finally reads as
+> a projectile rather than a thrown log.
+>
+> Verified: waves 1-2 paid exactly 160 with 20/20 lives after the change, so the smaller arrow still
+> connects; boulder cast, landed and damaged; zero errors.
+
 Twelve files from the manifest. Three things that make this more than a drag-and-drop:
 
 1. **`hit_radius` must stay in sync.** The enemies are `1_pixel.png` scaled to 64 and tinted with
@@ -327,6 +405,11 @@ Twelve files from the manifest. Three things that make this more than a drag-and
 
 ## Open items
 
-- **Level tiles (manifest 11-12)** — sourced, or does the map stay abstract for the first release?
+- **Wall tile (manifest #11) and floor tile (#12).** The floor was attempted and rejected; the wall
+  has not been attempted. Both want **16x16 at `scale = 3.125`**, which lands exactly on the 50px
+  game grid. Note `my_tiles.tscn` is currently `tile_size = 1` at node scale 50, so a real wall
+  texture means changing `texture_region_size` and the node scale **together**.
 - **Effects 1 and 2** — sprite sheets, or built procedurally?
-- Audio may arrive incrementally; A5-2 is built so a missing file is a no-op.
+- **No audio has been supplied yet.** All 16 files are still outstanding, so A5-2 and the audio
+  half of A5-3 are blocked on them. A5-2 is specified to treat a missing file as a no-op, so they
+  can land one at a time.
