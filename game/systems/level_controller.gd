@@ -983,3 +983,22 @@ func is_wall(world_pos: Vector2) -> bool:
 	var local_pos = tile_map.to_local(world_pos)
 	var cell = tile_map.local_to_map(local_pos)
 	return walls_dict.has(cell)
+
+
+## World-space extent of the playable map, for the camera to clamp panning to
+## (A5-4). Derived from the LOGIC tilemap, never the art layer: grass_biome can
+## overhang the play area, but there is nothing out there to look at.
+##
+## map_to_local() returns a cell CENTRE, so back off half a tile in LOCAL space
+## before to_global() — the same dance _build_density_grid() does, and for the
+## same reason: the node carries a x50 scale that to_global() applies.
+func get_world_bounds() -> Rect2:
+	var used: Rect2i = tile_map.get_used_rect()
+	if used.size.x == 0 or used.size.y == 0:
+		return Rect2()
+	var half_tile := Vector2(tile_map.tile_set.tile_size) * 0.5
+	var top_left: Vector2 = tile_map.to_global(
+		tile_map.map_to_local(used.position) - half_tile)
+	var bottom_right: Vector2 = tile_map.to_global(
+		tile_map.map_to_local(used.position + used.size) - half_tile)
+	return Rect2(top_left, bottom_right - top_left)

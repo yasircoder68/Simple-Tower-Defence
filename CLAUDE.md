@@ -49,9 +49,10 @@ no pause, and the upgrade panel is a debug readout bolted to the play screen. Th
 | Horde movement | **Fluid, not individuals** (decided 2026-09-07) — the horde should read like water pulled through a maze. **Half-delivered:** D-1 made the push a continuum (no pairwise step); the *routing* half — congestion feeding back into the flow field — moved to beta with the rest of the horde engine. |
 
 **The classroom / school-horror art has been deleted** (`dd49e82`) — ~148 PNGs, 106MB, wrong
-theme. It is still in git history if ever needed. Every sprite in the running game is a
-100–300 byte placeholder awaiting the commissioned medieval art (a beta deliverable — see
-`beta_plan.md`).
+theme. It is still in git history if ever needed. **That "every sprite is a 100-300 byte
+placeholder" state ENDED with A5-5 (2026-09-10):** both towers, all three enemies, both
+projectiles, the boulder and the map tiles are now real hand-drawn art. Beta's commission still
+owns FINAL-quality art (see `beta_plan.md`); this is a shippable interim, not the end state.
 
 `player.gd`, `player.tscn`, `test.tscn`, `tile_map.tscn`, `oil_trap.tscn` and `build_ui.gd`
 were **deleted** in the same cleanup — all verified orphans. Pure tower defense, no player unit.
@@ -102,14 +103,26 @@ met:** the game boots to a menu, plays, pauses, ends on a result screen that tel
 their silver was kept, has an upgrade shop reachable from two places, and shows no debug UI
 anywhere. **A4 was the only thing blocking an itch release.**
 
-**A5 — pre-ship polish — is IN PROGRESS: [a5_plan.md](a5_plan.md).** Art, audio, effects, a
+**A5 — pre-ship polish — is ALL BUT DONE: [a5_plan.md](a5_plan.md).** A5-1, A5-3, A5-4 and
+A5-5 all shipped and **A5's acceptance pass ran clean on 2026-09-10** — a full round WON with an
+exact three-way reconciliation (906-884 = 22 silver short, 8 lives lost, 6 of 408 escaped: uniquely
+1 ogre + 5 small), `hit_radius` intact on all three enemies, and zero errors across
+menu -> settings -> play -> pause -> result -> menu. **Two things remain: A5-2 audio (blocked — no
+files supplied) and all NINE EFFECTS, which are specified in the manifest but were never given a
+work-order section.** See a5_plan's Open items. Art, audio, effects, a
 settings menu, player-controlled camera zoom/pan, and export hygiene. It carries the **asset
 manifest**: 12 art files, 16 audio files, 9 effects, with exact paths and pixel sizes.
 
-**Where it stands (2026-09-09):** the **art import is 10/12 done and verified** — both towers with
-firing animations, all three enemies with run animations, arrow, fireball and boulder, plus the
-build ghost and sidebar icons. **Outstanding: the wall and floor tiles.** A grass floor was built
-and then removed by decision; the generator approach is recorded in a5_plan if it is revisited.
+**A5-5 IS DONE, 12/12 (2026-09-10).** Both towers with firing animations, all three enemies with
+run animations, arrow, fireball and boulder, plus the build ghost and sidebar icons — and the
+**wall and floor tiles, which are the user's `grass_biome` tilemap** (settled 2026-09-10). It ships
+6 floor and 11 wall variants of hand-drawn 8x8 art: green grass, grey stone.
+
+**They did not land the way the manifest specified, and that matters.** The spec assumed one
+tilemap at 100x100 / scale 0.5 doing art AND collision. What shipped is a split — `grass_biome` is
+cosmetic at 8px, a hidden `my_tiles` is the 50px logic layer, and 50/8 = 6.25 means no scale value
+can merge them. See *Flow-field pathfinding*. **`1_pixel.png` is no longer visible anywhere in the
+running game.**
 
 **A5-1 IS DONE (2026-09-10).** The export no longer carries developer tooling: pck **961 KB ->
 287 KB**, and the exported process holds **zero network sockets** (verified by `netstat` on its PID,
@@ -118,7 +131,11 @@ The WebSocket listener turned out to be **already guarded** by the addon; the re
 `.gdc` bytecode under `script_export_mode=2`, closed with a hand-written `exclude_filter`. The game
 is now **"Medieval Horde Defense"**, not "game". See a5_plan.md's A5-1 DONE block.
 
-**A5-2 through A5-4 are NOT started**, and one of them is blocked:
+**A5-3 (settings) and A5-4 (camera) ARE ALSO DONE (2026-09-10).** The game has a settings
+screen (fullscreen / vsync / resolution) reachable from the main menu and the pause screen, and
+a player-controlled camera — wheel zooms about the cursor, middle-drag pans, both clamped.
+`display/window/stretch/mode` is now `canvas_items`, so the whole game scales with the window
+instead of revealing more world. **Only A5-2 (audio) remains, and it is blocked on files:**
 - **There is still no audio at all**, and none has been supplied, so A5-2 and the audio half of the
   settings screen are blocked on files. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
@@ -234,7 +251,9 @@ zombie game prototype 1/
     │   ├── abilities/rain_of_arrows/  rain_of_arrows.tscn/.gd  (A2's A-1; reuses the
     │   │                          archer's arrow.png — a documented colocation exception)
     │   └── projectiles/         arrow/, fire/
-    ├── levels/              ← level_01.tscn + tilesets/my_tiles.tscn
+    ├── levels/              ← level_01.tscn + tilesets/. TWO tilemaps, see Architecture:
+    │                          my_tiles.tscn = 50px LOGIC layer, hidden; grass_biome.tscn
+    │                          = 8px ART layer (grass_floor.png, grass_walls.png), drawn
     ├── systems/             ← level_controller.gd (shared by ALL levels), base_health.gd,
     │                          wave_manager.gd, ability_manager.gd, enemy_types.gd,
     │                          bench.gd (dev-only horde benchmark)
@@ -558,6 +577,10 @@ easiest way to break a new ability**, and directional aiming doubled the surface
 **The entire policy is one line: everything inherits; only `ui/pause_menu/` is
 `PROCESS_MODE_ALWAYS`.**
 
+*(A5-3 added a SECOND always-on node: `ui/settings_screen/`, which the pause screen opens while
+the tree is paused. It sets its own `process_mode` in `_ready()` so the reason travels with the
+code. The policy is otherwise unchanged — those two nodes, nothing else.)*
+
 Nothing else in the project sets `process_mode` at all, so `get_tree().paused = true` already
 stops the horde, both of `wave_manager`'s Timers, `ability_manager`'s cooldown tick and node-bound
 Tweens. Verified by state, not by looking: an enemy position and an ability cooldown were both
@@ -651,7 +674,8 @@ signal-driven with no polling:
 | `ui/pause_menu/` | Resume / Restart / Quit to Menu / Quit to Desktop. **The only `PROCESS_MODE_ALWAYS` node in the project** |
 | `ui/result_screen/` | win/lose, waves, kills, silver, gold — and the line telling a loser their silver was kept |
 | `ui/upgrade_screen/` | the shop. Self-contained (autoloads only), so the SAME scene serves the main menu and a level |
-| `ui/main_menu/` | the boot scene: Begin Defense / Upgrades / Quit, plus persistent currencies |
+| `ui/main_menu/` | the boot scene: Begin Defense / Upgrades / Settings / Quit, plus persistent currencies |
+| `ui/settings_screen/` | fullscreen / vsync / resolution (A5-3). Self-contained like the shop, so ONE scene serves the menu and the pause screen. `PROCESS_MODE_ALWAYS`, `layer = 110` |
 
 **Procedurally created buttons still need explicit `.name`s** (`UpgradeButton_<type>_<track>`) so
 they are addressable by path for testing — anonymous `Control`s get auto-generated names like
@@ -1195,6 +1219,19 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   and an EMPTY used_rect grows to (-15,-15)..(15,15), which does not contain the end cell (21, 8).
   After any map edit, re-derive `my_tiles` and check **`walls_dict.size()` and `flow_field.size()`
   are both non-trivial** before concluding anything else is wrong.
+- **RENAMING THE PROJECT BREAKS THE MCP CONNECTION UNTIL THE REGISTRY IS REPAIRED.** The toolkit's
+  auth token lives under `user://`, so changing `application/config/name` moves it; the editor
+  re-writes the token to the new path (`[MCP] user:// path-deriving setting changed`) but the npm
+  bridge keeps the old registry entry and every authed tool fails `AUTH_FAILED: no token path`.
+  Worse, **the running game republishes `token_path: ""` on EVERY launch**, so a repair is undone
+  by the next `game_start`. Fix: write the real token path into `token_path` in
+  `%APPDATA%/godot-mcp-toolkit/projects.json` AND `entries/*.json` (a cache — safe to edit), or
+  restart the editor. `editor_get_console` keeps working throughout, which is how to diagnose it.
+- **The camera is `systems/camera_controller.gd` on the level's `Camera2D`, and it uses
+  `_unhandled_input()`.** Anything that adds a wheel- or middle-button binding must not use
+  `_input()`, or it will fire through the HUD and sidebar. Zoom is clamped to [the level's authored
+  zoom, 2.0] and panning to `level_controller.get_world_bounds()`; **view state is per-session and
+  deliberately NOT persisted** — it resets to the authored framing on every load.
 - **`application/config/name` IS WHAT `user://` RESOLVES FROM. Never change it after shipping.**
   It moved the save directory from `app_userdata/game/` to `app_userdata/Medieval Horde Defense/`
   when A5-1 renamed the project. Doing that to a released build orphans every player's `save.json`

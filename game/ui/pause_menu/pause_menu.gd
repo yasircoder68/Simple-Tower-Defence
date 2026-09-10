@@ -42,12 +42,15 @@ signal quit_requested
 @onready var scrim: ColorRect = $Scrim
 @onready var resume_button: Button = $Scrim/Center/Card/Rows/ResumeButton
 @onready var restart_button: Button = $Scrim/Center/Card/Rows/RestartButton
+@onready var settings_button: Button = $Scrim/Center/Card/Rows/SettingsButton
 @onready var menu_button: Button = $Scrim/Center/Card/Rows/MenuButton
 @onready var quit_button: Button = $Scrim/Center/Card/Rows/QuitButton
 
 ## Whether pausing is currently allowed. False outside a round: pausing a build
 ## phase would be a screen that stops nothing.
 var can_pause: bool = false
+
+var _settings_screen: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -58,6 +61,17 @@ func _ready() -> void:
 
 	resume_button.pressed.connect(_on_resume_pressed)
 	restart_button.pressed.connect(_on_restart_pressed)
+	settings_button.pressed.connect(_on_settings_pressed)
+
+	# Owned here rather than signalled out to the level controller, unlike
+	# restart/menu/quit. Those three need the controller to decide what they
+	# MEAN; settings decides for itself and touches no round state, so routing
+	# it through the map would be ceremony. It sits at layer 110 against this
+	# screen's 100 so it renders on top, and sets its own PROCESS_MODE_ALWAYS
+	# because the tree is paused whenever it is opened from here.
+	_settings_screen = preload("res://ui/settings_screen/settings_screen.tscn").instantiate()
+	add_child(_settings_screen)
+	_settings_screen.closed.connect(_on_settings_closed)
 	menu_button.pressed.connect(_on_menu_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
 
@@ -74,6 +88,15 @@ func setup(round_running: bool) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
+	# Escape closes the settings screen FIRST when it is stacked on this one.
+	# Without this the press falls through to _on_resume_pressed() and the game
+	# unpauses out from under a settings screen that is still on top of it --
+	# the round running invisibly behind a modal.
+	if _settings_screen != null and _settings_screen.visible:
+		_settings_screen.hide_screen()
+		settings_button.grab_focus()
+		get_viewport().set_input_as_handled()
+		return
 	if visible:
 		_on_resume_pressed()
 	elif can_pause:
@@ -83,6 +106,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Consumed either way, so Escape cannot also reach the level controller and
 	# cancel a tower drag on the same press.
 	get_viewport().set_input_as_handled()
+
+
+func _on_settings_pressed() -> void:
+	_settings_screen.open()
+
+
+func _on_settings_closed() -> void:
+	settings_button.grab_focus()
 
 
 func pause() -> void:
@@ -99,6 +130,11 @@ func pause() -> void:
 func resume() -> void:
 	if not visible:
 		return
+	# Defensive: every path out of a pause goes through here (button, Escape,
+	# and level_controller restarting), so closing the child here means no
+	# caller has to remember to.
+	if _settings_screen != null:
+		_settings_screen.hide_screen()
 	hide()
 	get_tree().paused = false
 

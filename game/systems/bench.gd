@@ -179,6 +179,14 @@ func run(count: int, config_name: String = "loose", ablation: int = Enemy.BENCH_
 ## variant is static and would otherwise leave the horde permanently crippled.
 func reset() -> void:
 	phase = Phase.IDLE
+	# Put vsync back the way the PLAYER set it. run() force-disables it (see
+	# the comment there — without that the whole result table reads "60"), and
+	# before A5-3 nothing ever restored it. Now that Settings owns vsync, a
+	# single bench run would otherwise silently override the player's choice
+	# for the rest of the session. Same class of bug as bench_variant below:
+	# global state a run turns on and must turn back off.
+	if Engine.has_singleton("Settings") or get_node_or_null("/root/Settings") != null:
+		get_node("/root/Settings").apply_vsync()
 	Enemy.bench_variant = Enemy.BENCH_FULL
 	# Reset alongside bench_variant for the same reason: both are static, so a
 	# run that ends without clearing them leaves the horde crippled for the

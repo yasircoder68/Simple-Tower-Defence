@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://m2dnhgidcx04" path="res://systems/level_controller.gd" id="1_map1"]
 [ext_resource type="PackedScene" uid="uid://dcbqh7oeor6rl" path="res://levels/tilesets/grass_biome.tscn" id="3_81a5f"]
+[ext_resource type="Script" path="res://systems/camera_controller.gd" id="3_gg43x"]
 [ext_resource type="PackedScene" uid="uid://mjbfh66n8kmp" path="res://levels/tilesets/my_tiles.tscn" id="3_v7ld6"]
 
 [node name="map1" type="Node2D" unique_id=4869005]
@@ -21,6 +22,7 @@ layer_0/tile_data = PackedInt32Array(65532, 0, 0, 65533, 0, 0, 65534, 0, 0, 6553
 [node name="Camera2D" type="Camera2D" parent="." unique_id=94693430]
 position = Vector2(442, 439)
 zoom = Vector2(0.575, 0.575)
+script = ExtResource("3_gg43x")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1809748140]
 

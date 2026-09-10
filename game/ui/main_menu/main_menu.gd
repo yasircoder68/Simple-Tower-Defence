@@ -24,10 +24,12 @@ extends Control
 const LEVEL_PATH := "res://levels/level_01.tscn"
 
 var _upgrade_screen: CanvasLayer = null
+var _settings_screen: CanvasLayer = null
 
 @onready var currency_label: Label = $Backdrop/Center/Card/Rows/Currency
 @onready var begin_button: Button = $Backdrop/Center/Card/Rows/BeginButton
 @onready var upgrades_button: Button = $Backdrop/Center/Card/Rows/UpgradesButton
+@onready var settings_button: Button = $Backdrop/Center/Card/Rows/SettingsButton
 @onready var quit_button: Button = $Backdrop/Center/Card/Rows/QuitButton
 
 
@@ -43,6 +45,15 @@ func _ready() -> void:
 	_upgrade_screen = preload("res://ui/upgrade_screen/upgrade_screen.tscn").instantiate()
 	add_child(_upgrade_screen)
 	_upgrade_screen.closed.connect(_on_upgrades_closed)
+	settings_button.pressed.connect(_on_settings_pressed)
+
+	# Same self-contained-CanvasLayer argument as the upgrade screen above: it
+	# reads only the Settings autoload, so this one scene serves the menu and
+	# the pause screen without either knowing about the other.
+	_settings_screen = preload("res://ui/settings_screen/settings_screen.tscn").instantiate()
+	add_child(_settings_screen)
+	_settings_screen.closed.connect(_on_settings_closed)
+
 	quit_button.pressed.connect(_on_quit_pressed)
 
 	# Surfacing the persistent currencies here is the cheapest possible way to
@@ -69,6 +80,16 @@ func _on_upgrades_closed() -> void:
 
 func _refresh_currency() -> void:
 	currency_label.text = "Silver %d     Gold %d" % [PlayerData.silver, PlayerData.gold]
+
+
+func _on_settings_pressed() -> void:
+	_settings_screen.open()
+
+
+## Focus has to be handed back explicitly — the screen took it on open() and
+## the button that opened it is no longer focused when it closes.
+func _on_settings_closed() -> void:
+	settings_button.grab_focus()
 
 
 func _on_begin_pressed() -> void:

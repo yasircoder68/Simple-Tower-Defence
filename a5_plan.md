@@ -2,7 +2,8 @@
 
 **Status: IN PROGRESS. A5-5 (art import) is largely done — 10 of the 12 manifest files are in and
 verified. **A5-1 (export hygiene) is DONE and verified against a real export, 2026-09-10.**
-A5-2 (audio) is blocked on files; A5-3 (settings) and A5-4 (camera) are not started.**
+**A5-3 (settings) and A5-4 (camera) are also DONE, 2026-09-10.** Only A5-2 (audio) remains,
+blocked on files. **A5-5 is CLOSED at 12/12** — `grass_biome` IS manifest #11 and #12.
 
 **Art went first, out of the planned order, at the user's direction** — they had assets ready. The
 five-strand order below is otherwise unchanged and still correct for what remains.
@@ -11,18 +12,26 @@ five-strand order below is otherwise unchanged and still correct for what remain
 |---|---|
 | A5-1 export hygiene | **DONE 2026-09-10** — pck 961 KB -> 287 KB, zero sockets in the export |
 | A5-2 audio foundation | not started — **no audio files supplied yet** |
-| A5-3 settings | not started |
-| A5-4 camera zoom + pan | not started |
-| A5-5 art import | **10/12 done** — see the DONE blocks below |
+| A5-3 settings | **DONE 2026-09-10** — display only; audio rows wait on A5-2 |
+| A5-4 camera zoom + pan | **DONE 2026-09-10** — verified through real wheel/drag input |
+| A5-5 art import | **DONE 12/12 2026-09-10** — `grass_biome` closed #11 and #12 |
 
-**Manifest: done** — archer tower + unit, wizard tower + unit, goblin, skeleton, ogre, arrow,
-fireball, boulder. **Outstanding** — #11 wall tile, #12 floor tile.
+**Manifest: DONE, all 12.** Archer tower + unit, wizard tower + unit, goblin, skeleton, ogre,
+arrow, fireball, boulder — and, as of 2026-09-10, the wall (#11) and floor (#12) tiles.
 
-> **A grass floor WAS built and then removed at the user's request** (2026-09-09: *"it's not that
-> good right now"*). The generator approach worked and is worth repeating when better art exists:
-> a headless script painting a `TileMapLayer`, 16px tiles at `scale = 3.125` = exactly one 50px
-> game cell, weighted variants, fixed seed. It was never committed. **The walls are still
-> `1_pixel.png` stretched x50** — white squares, and the last placeholder in the game.
+> **#11 AND #12 ARE THE USER'S `grass_biome` TILEMAP** (settled 2026-09-10: *"wall/floor is the
+> grass_biome tileMap"*). It ships 6 floor variants and 11 wall variants of hand-drawn 8x8 art
+> (`grass_floor.png` 48x8, `grass_walls.png` 88x8) — green grass and grey stone.
+>
+> **They did NOT land the way this manifest specified, and the difference is the interesting part.**
+> The spec assumed one tilemap at 100x100 / scale 0.5 doing both art and collision. What shipped is
+> a **split**: `grass_biome` is 8x8 at scale 1.0 and purely cosmetic, while a hidden `my_tiles`
+> stays the 50px logic layer. 50 / 8 = 6.25 is not an integer, so the two lattices cannot be
+> reconciled by any scale value — which is precisely why the split exists. See CLAUDE.md's
+> *Flow-field pathfinding*; the wall cells are DERIVED from the art by area majority.
+>
+> An earlier procedural grass floor was built and rejected (2026-09-09: *"it's not that good right
+> now"*) and was never committed. Hand-drawn art replaced it.
 
 A4 unblocked shipping. **This is the pass that makes the first public build not embarrassing** —
 real art instead of coloured rectangles, sound instead of silence, a settings menu, a camera the
@@ -69,8 +78,8 @@ A5-5's job is to set it, not to guess it.
 | 8 | `entities/projectiles/arrow/arrow.png` | **8x8** | 2.0 | 16x16 | **also re-skins Rain of Arrows** |
 | 9 | `entities/projectiles/fire/fire.png` | **8x8** | 2.0 | 16x16 | |
 | 10 | `entities/abilities/boulder/boulder.png` | 80x80 | 0.5 | 40x40 | closes Known issue 8 |
-| 11 | wall tile | 100x100 | 0.5 | 50x50 | must tile seamlessly |
-| 12 | floor tile or background | 100x100 | 0.5 | 50x50 | there is currently nothing at all |
+| 11 | `levels/tilesets/grass_walls.png` | **88x8** (11 x 8x8) | 1.0 | 8x8/tile | **DONE** — grey stone, cosmetic layer only |
+| 12 | `levels/tilesets/grass_floor.png` | **48x8** (6 x 8x8) | 1.0 | 8x8/tile | **DONE** — green grass |
 
 **Three consequences of those sizes, all decided rather than discovered:**
 
@@ -86,18 +95,21 @@ A5-5's job is to set it, not to guess it.
   gets crisper as the player zooms in. **This requires Nearest filtering** or the upscale is a
   blur: set `rendering/textures/canvas_textures/default_texture_filter = 0` project-wide in A5-5.
 
-**Tiles must scale exactly.** 100x100 at `scale = 0.5` gives a clean 2:1; a non-integer tile scale
-produces visible seams between cells. Note the tileset currently uses `tile_size = 1` with a x50
-node scale, so A5-5 has to change `texture_region_size` and the node scale together.
+**"Tiles must scale exactly" was the wrong constraint, and reality routed around it.** The rule
+assumed one tilemap serving art AND collision, where a non-integer scale would put the hitbox off
+the sprite. The shipped answer decouples them instead: the art tilemap can use any tile size it
+likes because nothing queries it, and the logic tilemap keeps its exact 50px cell because nothing
+draws it. **The constraint only ever bound because one node was doing two jobs.**
 
 **Open — skeleton and ogre are the only characters not on a 64x64 canvas.** If you want one uniform
 canvas for every character, author all three enemies at 64x64 and A5-5 sets `scale` to 0.5 / 0.47 /
 1.09 instead — the world sizes, and therefore `hit_radius`, stay identical either way.
 
-**11 and 12 are the largest visual gap in the game and were not on the user's list.** The map is
-drawn from `levels/tilesets/my_tiles.tscn`, which stretches `assets/1_pixel.png` by 50 — every wall
-is a white square, and the floor is the default grey clear-colour. Two towers on a whiteboard still
-looks like a prototype.
+**11 and 12 WERE the largest visual gap in the game and were not on the user's list — now closed.**
+The map was drawn from `my_tiles.tscn` stretching `assets/1_pixel.png` by 50: every wall a white
+square on a grey clear-colour, two towers on a whiteboard. `grass_biome` replaced that. `my_tiles`
+still exists and still uses `1_pixel.png`, but it is `visible = false` — it is collision now, not
+art, so **that placeholder is no longer on screen anywhere.**
 
 **Needs no art, already procedural:** the aim marker (`_draw()`), the ghost tower (tints the tower
 PNG), the sidebar icons (reuse the tower PNGs), and every UI panel (the generated theme).
@@ -266,6 +278,38 @@ names in a lookup table, not code.
 > `Engine.max_fps = 0`. Once Settings owns vsync, a bench run silently overrides the player's
 > choice and never restores it. `bench.reset()` must re-apply from Settings.
 
+#### DONE — 2026-09-10, MINUS AUDIO (A5-2 is blocked on files).
+
+`autoload/settings.gd` (registered as `Settings`) + `ui/settings_screen/`. Ships **Fullscreen,
+VSync, Resolution**; the two volume sliders are the only missing rows and are two entries in
+`_build_rows()` when the buses exist. Deliberately not shipped as dead controls.
+
+`display/window/stretch/mode = canvas_items` + `aspect = keep` landed FIRST and was looked at, as
+the prerequisite note demanded. **Verified by launching at an 820-wide window**: the whole layout
+(HUD, sidebar, ability bar, map) scaled down together and 16:9 was preserved. Under the old
+`disabled` mode the same window would have shown LESS map at a pixel-identical HUD.
+
+**The settings screen is the SECOND `PROCESS_MODE_ALWAYS` node in the project** — CLAUDE.md
+previously said `pause_menu` was the only one. It has to be: the pause screen opens it while the
+tree is paused, and a screen that inherited would appear with dead buttons. **Verified by clicking
+a toggle with `tree_paused: true` and watching the value change.**
+
+**It sits at `layer = 110` against pause_menu's 100.** At the 70 it was first written with it
+rendered UNDERNEATH the screen that opened it.
+
+**Escape closes Settings before it resumes.** Without that guard the press falls through to
+`_on_resume_pressed()` and the round runs invisibly behind a still-open modal. Verified: first
+Escape left `paused=true, pause_visible=true, settings_visible=false`; the second resumed.
+
+**The bench conflict the plan predicted was real and is fixed.** `bench.gd` force-disables vsync
+(without which every result reads "60") and `reset()` never restored it; it now calls
+`Settings.apply_vsync()`. Before A5-3 nothing owned vsync so nothing noticed.
+
+**Verified end to end:** a real click on the VSync toggle flipped `Settings.vsync` true->false,
+wrote `user://settings.cfg`, and **the value survived a full restart** (loaded back as false on
+boot). Reachable and working from BOTH the main menu and the pause screen, one shared scene. Zero
+runtime errors throughout.
+
 ### A5-4 — Camera zoom and pan
 
 Requested as *"camera zooming by player while placing tower and in combat"*. **Zoom implies pan** —
@@ -285,6 +329,50 @@ Two things that follow:
   `get_global_mouse_position()`, which accounts for the camera transform. **Verify it rather than
   assume it** — and note CLAUDE.md's standing warning that `get_global_mouse_position()` is not
   reliably driven by `input_simulate`, which zoom makes worse. Verify by state, not by coordinates.
+
+#### DONE — 2026-09-10.
+
+`systems/camera_controller.gd`, attached to `level_01`'s existing `Camera2D`. Shared by every
+level like `level_controller.gd`, and it **reads the level's authored zoom as the floor** rather
+than hardcoding 0.575, so a bigger map with different framing needs no edit here.
+
+**Routed through `_unhandled_input()`, not `_input()`** — the same rule the boulder is bound by,
+and it is load-bearing: a wheel notch over the build sidebar would otherwise zoom the world
+underneath it. This was **observed, not assumed**: motion events sent at (40,60) and (100,100) did
+nothing because those land inside the HUD panel, which consumed them. That looked like a bug for a
+moment and is in fact the routing working.
+
+**Zoom pins the world point under the cursor**, computed from the viewport rect by hand rather
+than with `get_global_mouse_position()`. That call reads the canvas transform, which `Camera2D`
+does not necessarily refresh in the frame the zoom is assigned — it would silently read the
+pre-zoom value and the correction would come out as exactly zero.
+
+**Panning has two clamp regimes, and the split is what stops the view snapping.** Zoomed IN the
+visible rect may not cross the map edge. Zoomed OUT that clamp is unsatisfiable (min would exceed
+max) and forcing it would jerk the camera to the map centre the instant the player touches the
+wheel; there the camera CENTRE is simply kept inside the map, which still guarantees the map is
+on screen because the view already covers it.
+
+**Verified through real input, not by calling methods:**
+
+| Check | Result |
+|---|---|
+| one wheel notch | 0.575 -> 0.6325, i.e. exactly x1.1 |
+| 16 notches up | clamped at exactly **2.0** |
+| 16 notches down | clamped at exactly **0.575** (the level's authored value) |
+| middle-drag, two motions of relative (-200,-100) at zoom 2 | camera +exactly (200,100) = `-relative/zoom` |
+| drag into the corner | exactly **(880.0, 620.0)** = the predicted tight clamp |
+| HUD | pixel-identical at every zoom (CanvasLayer, correct by construction) |
+
+**Placement and aiming were VERIFIED to follow the camera, not assumed.** At zoom 2.0 panned to
+(880,620) the canvas transform reads scale (2,2), origin (-1120,-880), and screen centre maps to
+world (880,620) — the camera centre. `get_global_mouse_position()` *is* that inverse transform, and
+`_cell_at()` and every ability read it, so they follow by construction.
+
+`level_controller.get_world_bounds()` supplies the clamp rect, derived from the LOGIC tilemap
+(`my_tiles`), never the art layer. It resolves to Rect2(-300, 0, 1500, 800) on level_01. The camera
+queries it **deferred**, because `_ready()` runs children-first and `level_controller`'s `@onready
+tile_map` is still null at that point.
 
 ### A5-5 — Art import · **LARGELY DONE** *(taken first, out of order)*
 
@@ -446,6 +534,50 @@ Twelve files from the manifest. Three things that make this more than a drag-and
 
 ## Acceptance
 
+**RUN 2026-09-10. Everything that does not need audio PASSES.**
+
+| Criterion | Result |
+|---|---|
+| Full round, per-wave silver | **PASS** — wave 1 = 64, wave 2 = 160 cumulative, both exact |
+| Three-way reconciliation | **PASS** — see below |
+| Settings survive a restart | **PASS** — vsync written to `user://settings.cfg`, loaded back on boot |
+| Zoom/pan vs placement + aiming | **PASS** — see below |
+| Export has no `addons/`, opens no ports | **PASS** (A5-1) — pck -70%, zero sockets on the running exe |
+| Zero errors, menu -> settings -> play -> pause -> result -> menu | **PASS** — `debugger_get_log` empty at every step |
+| `us_per_enemy` after effects | **N/A** — effects are not built (see Open items) |
+
+**The three-way reconciliation, which is the criterion that matters.** Round WON, 12/20 lives:
+
+| Channel | Figure |
+|---|---|
+| Silver | 906 expected — 884 actual = **22 short** |
+| Lives | 20 - 12 = **8 lost** |
+| Kills | 408 spawned - 402 killed = **6 escaped** |
+
+Exactly one composition satisfies all three: **1 ogre** (12 silver, 3 lives) + **5 small** (10
+silver, 5 lives) = 22 / 8 / 6. Two ogres would owe 28 silver, zero would owe 16; neither fits. **No
+drift anywhere in the damage, scoring or life-cost paths.**
+
+**`hit_radius` — the one thing A5-5 could have moved — is intact.** The convention is that a
+sprite's world size must equal `2 x hit_radius`, and all three hold exactly:
+
+| | frame | scale | world px | 2 x `hit_radius` |
+|---|---|---|---|---|
+| goblin | 16x16 | 2.0 | **32** | 32 |
+| skeleton | 16x16 | 1.875 | **30** | 30 |
+| ogre | 32x32 | 2.1875 | **70** | 70 |
+
+Note the source sizes differ from what this manifest specified (it asked for 64x64 / 48x70 /
+140x140 at scale 0.5). **The WORLD sizes are what the invariant is about, and those are exact.**
+
+**Zoom/pan verified against placement and aiming at zoom 0.765, mid-round:** `_cell_at()` on the
+screen-centre world position resolved to a live map cell, ability selection worked from the number
+keys, and **Rain of Arrows cast successfully through the full press-rotate-release directional aim**
+(cooldown read 25.6 of 30 afterwards). The boulder could NOT be confirmed the same way — its 3s
+cooldown is shorter than an MCP round trip, so it always reads 0 by the next call. Rain's 30s
+cooldown is what makes it observable at all; **use Rain, not the boulder, to test ability input.**
+
+
 - **A full round with per-wave silver reconciling exactly** (64 / 96 / 154 / 238 / 354). Mandatory
   after A5-5, because `hit_radius` is the one thing here that can change difficulty. Compare kills
   against the spawn table too — A4's U-3 counter makes that a three-way check.
@@ -461,10 +593,18 @@ Twelve files from the manifest. Three things that make this more than a drag-and
 
 ## Open items
 
-- **Wall tile (manifest #11) and floor tile (#12).** The floor was attempted and rejected; the wall
-  has not been attempted. Both want **16x16 at `scale = 3.125`**, which lands exactly on the 50px
-  game grid. Note `my_tiles.tscn` is currently `tile_size = 1` at node scale 50, so a real wall
-  texture means changing `texture_region_size` and the node scale **together**.
+- ~~**Wall tile (#11) and floor tile (#12).**~~ **CLOSED 2026-09-10** — both are the user's
+  `grass_biome` tilemap. The one residual cost: because the art lattice (8px) is 6.25x finer than
+  the logic lattice (50px), **the collision edge can sit up to 25px from the grass edge the player
+  sees.** That goes away only if the tiles are ever re-authored at 16x16 / `scale = 3.125`, which
+  is exactly one 50px cell and would let one tilemap serve both again.
+- **ALL NINE EFFECTS ARE UNBUILT, AND THEY HAVE NO WORK-ORDER SECTION.** The manifest specifies
+  them (boulder impact, fire explosion, enemy death puff, life-lost vignette, placement dust, wave
+  banner, Rain impacts, and two skipped) but the work order only ever ran A5-1..A5-5, so there is
+  no A5-N that builds them. **They are the one part of A5's stated scope with nothing written.**
+  Decide whether they are an A5-6 or move to beta with the rest of the polish. Whoever takes them
+  must read *THE RULE THAT GOVERNS BOTH AUDIO AND EFFECTS* first, and owes a `us_per_enemy`
+  reading against one taken in the same sitting beforehand.
 - **Effects 1 and 2** — sprite sheets, or built procedurally?
 - **No audio has been supplied yet.** All 16 files are still outstanding, so A5-2 and the audio
   half of A5-3 are blocked on them. A5-2 is specified to treat a missing file as a no-op, so they
