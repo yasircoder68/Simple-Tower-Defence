@@ -1,0 +1,11 @@
+# Build output. NEVER commit these: game.exe is ~100 MB and the repo history was
+# deliberately purged from 107 MB to 875 KB on 2026-09-04 (see CLAUDE.md).
+export/
+
+# Godot
+.godot/
+*.translation
+
+# OS
+Thumbs.db
+.DS_Store

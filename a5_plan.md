@@ -1,14 +1,15 @@
 # A5 — "Pre-Ship Polish" — Implementation Work Order
 
 **Status: IN PROGRESS. A5-5 (art import) is largely done — 10 of the 12 manifest files are in and
-verified. A5-1 through A5-4 (export hygiene, audio, settings, camera) are NOT started.**
+verified. **A5-1 (export hygiene) is DONE and verified against a real export, 2026-09-10.**
+A5-2 (audio) is blocked on files; A5-3 (settings) and A5-4 (camera) are not started.**
 
 **Art went first, out of the planned order, at the user's direction** — they had assets ready. The
 five-strand order below is otherwise unchanged and still correct for what remains.
 
 | | State |
 |---|---|
-| A5-1 export hygiene | not started — **~15 min, no assets needed, do it first** |
+| A5-1 export hygiene | **DONE 2026-09-10** — pck 961 KB -> 287 KB, zero sockets in the export |
 | A5-2 audio foundation | not started — **no audio files supplied yet** |
 | A5-3 settings | not started |
 | A5-4 camera zoom + pan | not started |
@@ -177,6 +178,61 @@ Fix: an exclude filter for the addon, a guard so the autoload does nothing in an
 
 **Also drop `systems/bench.gd` from the export** for the same reason — it is dev instrumentation
 that a player can never reach.
+
+#### DONE — 2026-09-10. Three of the four premises above were WRONG; read this before trusting them.
+
+**The WebSocket listener was ALREADY GUARDED.** `mcp_runtime_server.gd` line 108 already does
+`if not OS.has_feature("editor"): set_process(false); return`, with a comment noting it is stronger
+than `is_debug_build()` (true in a debug export). The addon also ships its own `EditorExportPlugin`
+(`core/export_strip.gd`) that strips addon files **and nulls the `MCPRuntimeServer` autoload for the
+bake**. Nothing needed writing for this.
+
+**What DID leak was the `.gdc` leak the addon documents and refuses to fix.** With
+`script_export_mode=2` (binary tokens, this preset's setting) Godot's built-in GDScript export
+plugin compiles addon `.gd` to `.gdc` **before** the strip runs, so the scripts shipped as inert
+orphaned bytecode. The addon warns rather than strips because `set_exclude_filter` is unbound
+through 4.6 (godot#4054). Setting `exclude_filter` **by hand in the preset** is the fix, and it is
+safe precisely because the strip plugin has already nulled the autoload.
+
+**`systems/bench.gd` could NOT simply be excluded.** `level_controller.gd` had
+`bench = preload("res://systems/bench.gd").new()`, and `preload()` resolves at **compile** time —
+so excluding the file would have been a parse failure of `level_controller` itself, i.e. the whole
+game would not boot. The construction is now wrapped in `if OS.has_feature("editor")` and uses
+`load()`. **Those two changes are a pair; undoing either alone breaks the export.**
+
+**Shipped:**
+
+| Change | Where |
+|---|---|
+| `exclude_filter="addons/godot_mcp_toolkit/*, systems/bench.gd, testbed/*"` | `export_presets.cfg` |
+| bench construction guarded + `preload` -> `load` | `level_controller.gd` |
+| `config/name` "game" -> "Medieval Horde Defense", `config/version` 0.1.0 | `project.godot` |
+| `product_name`, `company_name`, `file_description`, `file_version`, `product_version` | `export_presets.cfg` |
+| **`.gitignore` (there was none)** + untracked `export/` | repo root |
+
+**Verified against a real `--export-release`, not by reading:**
+
+- **pck 961,340 -> 287,196 bytes (-70%).**
+- **The exported process holds ZERO network sockets** (`netstat -ano` filtered to its PID). Its own
+  `user://logs/godot.log` contains **no MCP lines at all**, where the editor run logs both
+  `port: scanning 6570-6585` and `listening on 127.0.0.1:6570`. That contrast is the proof.
+- Window title reads **"Medieval Horde Defense"** (`tasklist /V`), not "game".
+- Bench still constructs under an editor run (`has_node("Bench")` true), map intact (175/156).
+
+**Two traps found while doing it:**
+
+- **`config/name` is what `user://` resolves from.** Changing it MOVED the save directory from
+  `app_userdata/game/` to `app_userdata/Medieval Horde Defense/`, orphaning anything in the old one.
+  Harmless here only because it was done before any public build and right after a deliberate save
+  reset. **Never change `config/name` after shipping** — it wipes every player's progress.
+- **The editor holds ProjectSettings in memory and rewrites `project.godot` on save.** Editing the
+  file directly left the editor still reporting `"game"`, which would have been written back. Use
+  `project_set_setting` so both agree.
+
+**Residual, and deliberately not chased:** ~137 addon path *strings* remain in the pck inside
+`.godot/global_script_class_cache.cfg` and `.godot/uid_cache.bin`, which Godot always packs. No
+addon **file** is stored — the size drop and the zero-socket result both confirm it. They are dead
+names in a lookup table, not code.
 
 ### A5-2 — Audio foundation · needs nothing but the files
 

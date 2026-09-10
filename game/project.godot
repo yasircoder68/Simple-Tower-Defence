@@ -10,7 +10,8 @@ config_version=5
 
 [application]
 
-config/name="game"
+config/name="Medieval Horde Defense"
+config/version="0.1.0"
 run/main_scene="res://ui/main_menu/main_menu.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
@@ -25,6 +26,7 @@ TowerStats="*res://autoload/tower_stats.gd"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/stretch/mode="canvas_items"
 
 [editor_plugins]
 

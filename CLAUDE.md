@@ -111,9 +111,14 @@ firing animations, all three enemies with run animations, arrow, fireball and bo
 build ghost and sidebar icons. **Outstanding: the wall and floor tiles.** A grass floor was built
 and then removed by decision; the generator approach is recorded in a5_plan if it is revisited.
 
-**A5-1 through A5-4 are NOT started**, and two of them matter more than they look:
-- **The exported build packs the whole MCP dev addon and starts a WebSocket listener on the
-  player's machine.** A5-1 fixes it in ~15 minutes and needs no assets — the natural next step.
+**A5-1 IS DONE (2026-09-10).** The export no longer carries developer tooling: pck **961 KB ->
+287 KB**, and the exported process holds **zero network sockets** (verified by `netstat` on its PID,
+and by its own log containing no MCP lines where an editor run logs `listening on 127.0.0.1:6570`).
+The WebSocket listener turned out to be **already guarded** by the addon; the real leak was orphaned
+`.gdc` bytecode under `script_export_mode=2`, closed with a hand-written `exclude_filter`. The game
+is now **"Medieval Horde Defense"**, not "game". See a5_plan.md's A5-1 DONE block.
+
+**A5-2 through A5-4 are NOT started**, and one of them is blocked:
 - **There is still no audio at all**, and none has been supplied, so A5-2 and the audio half of the
   settings screen are blocked on files. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
@@ -1190,6 +1195,19 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   and an EMPTY used_rect grows to (-15,-15)..(15,15), which does not contain the end cell (21, 8).
   After any map edit, re-derive `my_tiles` and check **`walls_dict.size()` and `flow_field.size()`
   are both non-trivial** before concluding anything else is wrong.
+- **`application/config/name` IS WHAT `user://` RESOLVES FROM. Never change it after shipping.**
+  It moved the save directory from `app_userdata/game/` to `app_userdata/Medieval Horde Defense/`
+  when A5-1 renamed the project. Doing that to a released build orphans every player's `save.json`
+  silently — they see a brand-new game. It was safe on 2026-09-10 only because nothing had shipped.
+- **The editor holds ProjectSettings IN MEMORY and rewrites `project.godot` on save.** Editing that
+  file on disk while the editor is open left `project_get_settings` still reporting the old value,
+  which would have been written back over the edit. Use `project_set_setting`, which persists via
+  `ProjectSettings.save()` so both copies agree.
+- **`systems/bench.gd` is excluded from the export, and `level_controller` must keep using `load()`,
+  not `preload()`, to build it.** `preload()` resolves at COMPILE time, so it binds the file into
+  `level_controller`'s dependency closure — excluding an preloaded file is a parse failure of the
+  whole game, not a missing bench. The `if OS.has_feature("editor")` guard and the
+  `exclude_filter` entry are a PAIR; undoing either alone breaks the export.
 - **The scene file is `levels/level_01.tscn` but its ROOT NODE is still named `map1`** — renaming
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the

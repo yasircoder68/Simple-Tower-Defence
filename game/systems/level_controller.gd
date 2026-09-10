@@ -214,12 +214,21 @@ func _ready() -> void:
 	ability_manager.setup(self)
 
 	# Dev instrumentation, inert until run() is called over MCP. Constructed
-	# unconditionally so its node path is stable — a bench you have to enable
-	# first is a bench nobody runs.
-	bench = preload("res://systems/bench.gd").new()
-	bench.name = "Bench"
-	add_child(bench)
-	bench.setup(self)
+	# unconditionally in the editor so its node path is stable — a bench you have
+	# to enable first is a bench nobody runs.
+	#
+	# load(), NOT preload(): preload() resolves at COMPILE time, which would bind
+	# bench.gd into this script's dependency closure and make excluding the file
+	# from an export a parse failure of level_controller itself — i.e. the whole
+	# game. has_feature("editor") is false in every export template (debug AND
+	# release), so a shipped build never reaches the load() and never needs the
+	# file. Keep these two facts together: the guard is what makes the export
+	# exclude_filter entry safe.
+	if OS.has_feature("editor"):
+		bench = (load("res://systems/bench.gd") as GDScript).new()
+		bench.name = "Bench"
+		add_child(bench)
+		bench.setup(self)
 
 	# Instantiate Sidebar and Ghost
 	var sidebar_scene = preload("res://ui/build_sidebar/build_sidebar.tscn")
