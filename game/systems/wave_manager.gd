@@ -474,6 +474,7 @@ func skip_breather() -> void:
 
 func _start_wave(index: int) -> void:
 	current_wave = index
+	Audio.play("wave_start")
 	var wave: Dictionary = _waves[index - 1]
 	wave_remaining = wave["count"]
 	_spawned_this_wave = 0

@@ -2,8 +2,8 @@
 
 **Status: IN PROGRESS. A5-5 (art import) is largely done — 10 of the 12 manifest files are in and
 verified. **A5-1 (export hygiene) is DONE and verified against a real export, 2026-09-10.**
-**A5-3 (settings) and A5-4 (camera) are also DONE, 2026-09-10.** Only A5-2 (audio) remains,
-blocked on files. **A5-5 is CLOSED at 12/12** — `grass_biome` IS manifest #11 and #12.
+**A5-3 (settings) and A5-4 (camera) are also DONE, 2026-09-10.** **A5-2 (audio) is DONE as well, minus the two music tracks.**
+**A5-5 is CLOSED at 12/12** — `grass_biome` IS manifest #11 and #12.
 
 **Art went first, out of the planned order, at the user's direction** — they had assets ready. The
 five-strand order below is otherwise unchanged and still correct for what remains.
@@ -11,7 +11,7 @@ five-strand order below is otherwise unchanged and still correct for what remain
 | | State |
 |---|---|
 | A5-1 export hygiene | **DONE 2026-09-10** — pck 961 KB -> 287 KB, zero sockets in the export |
-| A5-2 audio foundation | not started — **no audio files supplied yet** |
+| A5-2 audio foundation | **DONE 2026-09-10** — 14 synthesized SFX, pooled `Audio` autoload; music excluded |
 | A5-3 settings | **DONE 2026-09-10** — display only; audio rows wait on A5-2 |
 | A5-4 camera zoom + pan | **DONE 2026-09-10** — verified through real wheel/drag input |
 | A5-5 art import | **DONE 12/12 2026-09-10** — `grass_biome` closed #11 and #12 |
@@ -255,6 +255,60 @@ names in a lookup table, not code.
 - **Missing files must be a no-op, not an error**, so sounds can land one at a time rather than
   all sixteen at once.
 - Wire the call sites: towers, projectiles, enemies, abilities, the round lifecycle, every button.
+
+#### DONE — 2026-09-10. All 14 SFX, synthesized; the 2 music tracks remain (excluded by decision).
+
+**No audio was supplied, so the sounds were synthesized in code** — a Python script (numpy/scipy,
+sfxr-style: oscillators with pitch sweeps, filtered noise, Karplus-Strong plucks for bowstrings, fixed
+seeds). **That script is not committed yet; the WAVs are the source of truth until it is.** 16-bit mono
+44.1 kHz, ~850 KB total, zero clipped samples. Loudness is set per sound by peak and deliberately
+uneven: `archer_shot` is 130 ms at -15 dBFS peak / -31.6 RMS because it fires ~32/sec, `enemy_death`
+is 180 ms for its bursts, and rare punctuation (`wave_start`, `round_won`, `boulder_impact`) sits at
+-3 to -5 dBFS. **Whether they SOUND right was not judged here** — nothing on the implementing side can
+hear. Everything below is what measurement could establish.
+
+**Shipped:**
+
+| Piece | Where |
+|---|---|
+| `default_bus_layout.tres`: Master -> Music, SFX | `game/` |
+| `Audio` autoload: 14 fixed pools (30 players), retrigger gap, pitch jitter from a private RNG | `autoload/audio.gd` |
+| Every button clicks: `node_added` hook + one deferred sweep of the boot scene | `autoload/audio.gd` |
+| SFX Volume slider: linear 0-1, `linear_to_db()` at apply, 0 = muted bus | `settings.gd`, `settings_screen.gd` |
+| Call sites: both towers, fireball, enemy death, boulder, Rain, waves, round end, lives, place/remove/move, shop | 11 scripts |
+
+**Verified in a real round** (upgraded save, 3 archers + 1 wizard, boulder and Rain cast mid-round):
+WON, 904 silver, 19/20 lives, result screen **407 killed**. Four channels agree: 906-904 = 2 silver
+short, 1 life lost, one small enemy escaped — and **`enemy_death` requests = 199 played + 208 throttled
+= 407 = the kill count**, so every `_die()` reached the hook exactly once. `life_lost` 1 = the one
+escape; `wave_start` 5; `round_won` 1; `wizard_cast` 50 = `fire_explode` 50. **`stolen` was 0 for every
+sound**: the retrigger gaps absorbed the bursts (`enemy_death` dropped 51% of requests, `archer_shot`
+40 of 224) and no pool ever ran out. The cap is a backstop this load never reached.
+
+**Also verified:** 4 towers placed in one frame gave `tower_place` 1 played / 3 throttled; removal
+played it at pitch 0.738 (0.78 x jitter); a real shop click gave `upgrade_buy` 1 + `ui_click` 1; a
+misspelled sound name push_errors (tested by breaking it); a real mouse drag moved SFX 0.8 -> 0.3
+live, played a preview click on release and wrote `[audio] sfx_volume` to `settings.cfg`; the pause
+menu's buttons click with `tree_paused: true`, and its settings screen showed the persisted 0.3.
+
+**Pause, measured:** a gameplay voice already playing when the pause began froze at 0.003 s through the
+whole pause and resumed to 1.707 s after; a `ui` voice beside it advanced to 0.525 s; the retrigger
+clock read identically across two paused reads. **The first version of that test was invalid** — it
+started both voices AFTER pausing, saw both advance, and proved nothing, because Godot pauses streams on
+the pause notification.
+
+**Two bugs found by testing, both fixed:**
+
+- **Boot-scene buttons were silent.** `node_added` never reports the boot scene's nodes — they enter the
+  tree before any autoload's `_ready()` runs. A shop button built later in `_ready()` clicked while the
+  level's authored StartButton did not, and in real play the boot scene is the MAIN MENU. Fixed with one
+  deferred sweep; re-verified at the menu: all four menu buttons hooked, and real clicks counted.
+- **The editor clobbered the bus layout.** Adding the Music bus through the editor made it save its
+  in-memory, Master-only layout over `default_bus_layout.tres`, deleting SFX from the file. Re-adding SFX
+  through the editor restored it, and `Audio._ensure_bus()` recreates a missing bus at runtime anyway.
+
+**`us_per_enemy` was not re-measured.** Audio adds no per-enemy, per-frame work — one float add per frame
+in `Audio._process()`, everything else fires on events — so it sits outside what that metric measures.
 
 ### A5-3 — Settings · needs A5-2's buses
 
@@ -606,6 +660,6 @@ cooldown is what makes it observable at all; **use Rain, not the boulder, to tes
   must read *THE RULE THAT GOVERNS BOTH AUDIO AND EFFECTS* first, and owes a `us_per_enemy`
   reading against one taken in the same sitting beforehand.
 - **Effects 1 and 2** — sprite sheets, or built procedurally?
-- **No audio has been supplied yet.** All 16 files are still outstanding, so A5-2 and the audio
-  half of A5-3 are blocked on them. A5-2 is specified to treat a missing file as a no-op, so they
-  can land one at a time.
+- **Music (`menu_loop`, `combat_loop`) is the only audio still outstanding** — excluded by user
+  decision, 2026-09-10. The `Music` bus already exists; landing it means two `.ogg` files (tick Loop
+  on import), a music player in `Audio`, and a Music slider in `_build_rows()`.

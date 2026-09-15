@@ -19,9 +19,8 @@ extends CanvasLayer
 ## rows: the option list is data, and a procedural row cannot drift from the
 ## Settings API the way a hand-placed one can.
 ##
-## NO AUDIO ROWS YET. A5-2 owns the buses and no files have been supplied, so
-## adding sliders now would ship two dead controls. When it lands they are two
-## more entries in _build_rows().
+## ONE AUDIO ROW: SFX volume (A5-2). There is no music yet, so a Music slider
+## would be a dead control; it is one more entry in _build_rows() when music lands.
 
 signal closed
 
@@ -31,6 +30,7 @@ signal closed
 var _fullscreen_check: CheckButton = null
 var _vsync_check: CheckButton = null
 var _resolution_option: OptionButton = null
+var _sfx_slider: HSlider = null
 
 
 func _ready() -> void:
@@ -66,6 +66,24 @@ func _build_rows() -> void:
 	row.add_child(_resolution_option)
 	options_box.add_child(row)
 
+	var sfx_row := HBoxContainer.new()
+	sfx_row.name = "SfxVolumeRow"
+	var sfx_label := Label.new()
+	sfx_label.text = "SFX Volume"
+	sfx_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sfx_row.add_child(sfx_label)
+	_sfx_slider = HSlider.new()
+	_sfx_slider.name = "SfxVolumeSlider"
+	_sfx_slider.min_value = 0.0
+	_sfx_slider.max_value = 1.0
+	_sfx_slider.step = 0.05
+	_sfx_slider.custom_minimum_size = Vector2(140, 0)
+	_sfx_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_sfx_slider.value_changed.connect(_on_sfx_changed)
+	_sfx_slider.drag_ended.connect(_on_sfx_drag_ended)
+	sfx_row.add_child(_sfx_slider)
+	options_box.add_child(sfx_row)
+
 
 func _add_toggle(text: String, node_name: String) -> CheckButton:
 	var row := HBoxContainer.new()
@@ -90,6 +108,7 @@ func _sync_from_settings() -> void:
 	_fullscreen_check.set_pressed_no_signal(Settings.fullscreen)
 	_vsync_check.set_pressed_no_signal(Settings.vsync)
 	_resolution_option.select(Settings.resolution_index)
+	_sfx_slider.set_value_no_signal(Settings.sfx_volume)
 	# Resolution is meaningless while fullscreen — the choice is still stored
 	# and re-applies on the way out, so this greys out rather than hides.
 	_resolution_option.disabled = Settings.fullscreen
@@ -120,6 +139,21 @@ func _on_resolution_selected(index: int) -> void:
 	Settings.set_resolution_index(index)
 
 
+## Applied live while dragging so the player hears the level they are choosing;
+## persisted once on release. See Settings.set_sfx_volume().
+func _on_sfx_changed(value: float) -> void:
+	Settings.set_sfx_volume(value, false)
+
+
+func _on_sfx_drag_ended(_value_changed: bool) -> void:
+	Settings.save_settings()
+	# A sample at the new level. ui_click is the one sound guaranteed to play while
+	# the tree is paused, which is exactly when this screen may be open.
+	Audio.play("ui_click")
+
+
 func _on_close_pressed() -> void:
+	# Keyboard edits to the slider emit no drag_ended, so persist here too.
+	Settings.save_settings()
 	hide_screen()
 	closed.emit()

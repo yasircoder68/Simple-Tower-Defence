@@ -626,6 +626,7 @@ func on_enemy_escaped(life_cost: int = 1) -> void:
 	if round_state != RoundState.IN_ROUND:
 		return
 	base_health.lose_life(life_cost)
+	Audio.play("life_lost")
 
 	# EXACTLY 1, never life_cost. One spawned unit is one resolution unit;
 	# life_cost is a damage number, not a count.
@@ -653,6 +654,7 @@ func _check_round_complete() -> void:
 
 func _end_round(won: bool) -> void:
 	round_state = RoundState.ROUND_WON if won else RoundState.ROUND_LOST
+	Audio.play("round_won" if won else "round_lost")
 
 	# _clear_all_enemies() handles enemies already on the board, but nothing
 	# stopped a RUNNING spawner before this — that gap is exactly what let a
@@ -821,6 +823,7 @@ func place_tower(type: String, world_pos: Vector2):
 	tower.set_meta("tower_type", type)
 	add_child(tower)
 	towers_by_cell[cell] = tower
+	Audio.play("tower_place")
 
 
 ## Removes a placed tower outright. PRE_ROUND only. No refund — towers are
@@ -837,6 +840,9 @@ func remove_tower(cell: Vector2i) -> bool:
 	# would otherwise still find and hand out a tower that's about to die.
 	towers_by_cell.erase(cell)
 	tower.queue_free()
+	# The manifest deliberately has no tower_remove: the placement thud pitched down reads
+	# as the same object going away, and it is one file fewer.
+	Audio.play("tower_place", 0.78)
 	return true
 
 
@@ -873,6 +879,7 @@ func finish_move(cell: Vector2i) -> void:
 	moving_tower.global_position = cell_center
 	moving_tower.show()
 	towers_by_cell[cell] = moving_tower
+	Audio.play("tower_place")
 	moving_tower = null
 	moving_from_cell = null
 	dragging_type = ""

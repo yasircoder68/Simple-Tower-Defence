@@ -22,6 +22,7 @@ MCPRuntimeServer="*res://addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd"
 PlayerData="*res://autoload/player_data.gd"
 TowerStats="*res://autoload/tower_stats.gd"
 Settings="*res://autoload/settings.gd"
+Audio="*res://autoload/audio.gd"
 
 [display]
 

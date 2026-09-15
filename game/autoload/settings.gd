@@ -12,14 +12,15 @@ extends Node
 ## before the boot scene (the main menu) is instantiated — which is exactly the
 ## "applied on boot, before the main menu is shown" requirement, for free.
 ##
-## AUDIO IS NOT HERE YET, ON PURPOSE. A5-2 owns the bus layout and the pooled
-## player, and no audio files have been supplied. When it lands, add a
-## `[audio]` section with linear 0-1 values and convert with linear_to_db() at
-## APPLY time. **Never store dB** — it is a display-hostile log scale, and a
-## slider that stores dB cannot represent silence.
+## AUDIO (A5-2): an `[audio]` section holding LINEAR 0-1 values, converted with
+## linear_to_db() only at APPLY time. **Never store dB** — it is a log scale a
+## slider cannot represent sensibly, and linear_to_db(0) is -inf, which is why a
+## zero volume maps to a MUTED bus rather than to a dB number. SFX only for now:
+## there is no music yet, and a Music slider would move nothing.
 
 const SETTINGS_PATH := "user://settings.cfg"
 const SECTION_DISPLAY := "display"
+const SECTION_AUDIO := "audio"
 
 ## Offered in the windowed resolution dropdown. All 16:9, matching the project's
 ## 1280x720 base — with stretch/mode = canvas_items and aspect = keep, picking
@@ -38,6 +39,7 @@ signal changed
 var fullscreen: bool = false
 var vsync: bool = true
 var resolution_index: int = 0
+var sfx_volume: float = 0.8
 
 
 func _ready() -> void:
@@ -58,6 +60,7 @@ func load_settings() -> void:
 	resolution_index = clampi(
 		int(cfg.get_value(SECTION_DISPLAY, "resolution_index", resolution_index)),
 		0, RESOLUTIONS.size() - 1)
+	sfx_volume = clampf(float(cfg.get_value(SECTION_AUDIO, "sfx_volume", sfx_volume)), 0.0, 1.0)
 
 
 ## Written immediately rather than through a dirty flag. The argument is the one
@@ -68,6 +71,7 @@ func save_settings() -> void:
 	cfg.set_value(SECTION_DISPLAY, "fullscreen", fullscreen)
 	cfg.set_value(SECTION_DISPLAY, "vsync", vsync)
 	cfg.set_value(SECTION_DISPLAY, "resolution_index", resolution_index)
+	cfg.set_value(SECTION_AUDIO, "sfx_volume", sfx_volume)
 	var err := cfg.save(SETTINGS_PATH)
 	if err != OK:
 		push_error("Settings: could not write %s (error %d)" % [SETTINGS_PATH, err])
@@ -78,6 +82,7 @@ func save_settings() -> void:
 func apply() -> void:
 	apply_vsync()
 	_apply_window()
+	apply_audio()
 
 
 ## Split out because systems/bench.gd force-disables vsync for a measurement run
@@ -86,6 +91,21 @@ func apply() -> void:
 func apply_vsync() -> void:
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+
+
+## Also called by the Audio autoload once it has guaranteed the buses exist:
+## autoloads run _ready() in registration order and Settings is registered first,
+## so on a missing layout file this autoload's own pass would find no SFX bus.
+func apply_audio() -> void:
+	_apply_bus(&"SFX", sfx_volume)
+
+
+func _apply_bus(bus_name: StringName, linear: float) -> void:
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx == -1:
+		return
+	AudioServer.set_bus_mute(idx, linear <= 0.001)
+	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(linear, 0.001)))
 
 
 func _apply_window() -> void:
@@ -133,6 +153,21 @@ func set_resolution_index(index: int) -> void:
 	if not fullscreen:
 		_apply_window()
 	save_settings()
+	changed.emit()
+
+
+## persist = false while a slider is being DRAGGED: value_changed fires on every
+## pixel of movement, and writing the file each time is pointless disk churn. The
+## screen persists once on drag end and again on close (keyboard edits emit no
+## drag end).
+func set_sfx_volume(value: float, persist: bool = true) -> void:
+	var clamped := clampf(value, 0.0, 1.0)
+	if is_equal_approx(clamped, sfx_volume):
+		return
+	sfx_volume = clamped
+	_apply_bus(&"SFX", sfx_volume)
+	if persist:
+		save_settings()
 	changed.emit()
 
 

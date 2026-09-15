@@ -106,7 +106,8 @@ func _on_upgrade_pressed(tower_type: String, track: String) -> void:
 		return
 	# try_upgrade() spends and increments atomically; on failure nothing changes
 	# and no signal fires, so the buttons simply stay as they were.
-	TowerStats.try_upgrade(tower_type, track)
+	if TowerStats.try_upgrade(tower_type, track):
+		Audio.play("upgrade_buy")
 
 
 func _on_silver_changed(_n: int) -> void:

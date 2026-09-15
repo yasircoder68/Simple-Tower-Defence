@@ -107,9 +107,10 @@ anywhere. **A4 was the only thing blocking an itch release.**
 A5-5 all shipped and **A5's acceptance pass ran clean on 2026-09-10** — a full round WON with an
 exact three-way reconciliation (906-884 = 22 silver short, 8 lives lost, 6 of 408 escaped: uniquely
 1 ogre + 5 small), `hit_radius` intact on all three enemies, and zero errors across
-menu -> settings -> play -> pause -> result -> menu. **Two things remain: A5-2 audio (blocked — no
-files supplied) and all NINE EFFECTS, which are specified in the manifest but were never given a
-work-order section.** See a5_plan's Open items. Art, audio, effects, a
+menu -> settings -> play -> pause -> result -> menu. **A5-2 audio is DONE too (2026-09-10):** 14 synthesized SFX in a pooled `Audio` autoload, verified in a
+real round — see *Audio (A5-2)* under Architecture. **What remains: the two music tracks (excluded by
+decision) and all NINE EFFECTS, which are specified in the manifest but were never given a work-order
+section.** See a5_plan's Open items. Art, audio, effects, a
 settings menu, player-controlled camera zoom/pan, and export hygiene. It carries the **asset
 manifest**: 12 art files, 16 audio files, 9 effects, with exact paths and pixel sizes.
 
@@ -135,9 +136,7 @@ is now **"Medieval Horde Defense"**, not "game". See a5_plan.md's A5-1 DONE bloc
 screen (fullscreen / vsync / resolution) reachable from the main menu and the pause screen, and
 a player-controlled camera — wheel zooms about the cursor, middle-drag pans, both clamped.
 `display/window/stretch/mode` is now `canvas_items`, so the whole game scales with the window
-instead of revealing more world. **Only A5-2 (audio) remains, and it is blocked on files:**
-- **There is still no audio at all**, and none has been supplied, so A5-2 and the audio half of the
-  settings screen are blocked on files. Three things
+instead of revealing more world. **A5-2 (audio) followed the same day** — see *Audio (A5-2)* under Architecture. Three things
 from it that contradict older notes: `/root/map1` **survives** a main menu if scenes are replaced
 rather than nested; pause needs **one** `PROCESS_MODE_ALWAYS` exception rather than four
 per-system rules; and A4 deliberately takes only `ui_plan`'s UI-0 + a trimmed UI-1 + UI-4, leaving
@@ -237,7 +236,7 @@ zombie game prototype 1/
 ├── rules_for_godot_mcp.md   ← MCP toolkit reference
 ├── .mcp.json                ← MCP config (see MCP setup below)
 └── game/                    ← the Godot project (project.godot lives HERE, not at root)
-    ├── autoload/            ← player_data.gd, tower_stats.gd (registered in project.godot)
+    ├── autoload/            ← player_data.gd, tower_stats.gd, settings.gd, audio.gd (registered in project.godot)
     ├── entities/            ← COLOCATED: each thing owns a folder with its scene+script+art
     │   ├── towers/archer/       archer_tower.tscn/.gd, archer.tscn/.gd, archer*.png
     │   ├── towers/wizard/       wizard_tower.tscn, wizard.tscn/.gd, wizard*.png
@@ -579,7 +578,8 @@ easiest way to break a new ability**, and directional aiming doubled the surface
 
 *(A5-3 added a SECOND always-on node: `ui/settings_screen/`, which the pause screen opens while
 the tree is paused. It sets its own `process_mode` in `_ready()` so the reason travels with the
-code. The policy is otherwise unchanged — those two nodes, nothing else.)*
+code. A5-2 then added the four `ui`-flagged voices in the `Audio` autoload — see *Audio (A5-2)*. The
+policy is otherwise unchanged.)*
 
 Nothing else in the project sets `process_mode` at all, so `get_tree().paused = true` already
 stops the horde, both of `wave_manager`'s Timers, `ability_manager`'s cooldown tick and node-bound
@@ -602,6 +602,30 @@ decides what they mean. **Restart goes through `start_new_round()`** — the sam
 uses — and `resume()` runs *before* the signal, because restarting into a still-paused tree is a
 soft lock that looks exactly like a crash. Pausing is armed only inside a round, matching the rule
 that abilities are inert outside `IN_ROUND`.
+
+### Audio (A5-2)
+
+`autoload/audio.gd`, registered as **`Audio`** after `Settings`. Every sound is **`Audio.play("name")`**:
+fire-and-forget, event-level only, never per frame. 14 SFX live in `assets/audio/sfx/` and route to the
+`SFX` bus from `default_bus_layout.tres` (Master -> Music, SFX). **There is no music yet**, by decision.
+
+- **Fixed pools, built once — 30 players for 14 sounds.** The pool size IS the hard cap. Each sound
+  also has a **retrigger gap** (requests inside it are dropped) and **pitch jitter** from a PRIVATE
+  `RandomNumberGenerator`, so audio never advances the global RNG that tower targeting reads. Tuning
+  lives in the `SOUNDS` const.
+- **`Audio.stats` (played / throttled / stolen per sound) is the verification tool.** `played +
+  throttled` is the request count, so for `enemy_death` it must equal the round's kill count — measured
+  407 = 407. A sound that "isn't playing" is a counter question before it is a code question.
+- **A misspelled name push_errors; a missing FILE is a silent no-op**, so sounds can land one at a time.
+- **Every button clicks with no per-screen code:** a `node_added` hook PLUS a deferred sweep of the tree
+  at boot. The sweep is not optional — see Gotchas.
+- **Pause was measured, not assumed:** a gameplay voice already playing when the pause begins freezes and
+  resumes (held at 0.003 s through a pause, 1.707 s after). `ui`-flagged voices (`ui_click`,
+  `upgrade_buy`) are `PROCESS_MODE_ALWAYS`, so a click sounding as Escape lands finishes cleanly.
+- **Volume is linear 0-1 in `Settings`, converted with `linear_to_db()` only at apply;** 0 mutes the bus
+  (`linear_to_db(0)` is -inf). The slider applies live while dragging and persists on release and close.
+- **Tower removal reuses `tower_place` at pitch 0.78**, the manifest's deliberate choice. Rain of Arrows
+  plays ONE sound per cast, never per tick — the file is a whole volley.
 
 ### Round lifecycle
 
@@ -1245,6 +1269,23 @@ cheap. Retrofitting **structure** is not — so make managers signal-driven from
   `level_controller`'s dependency closure — excluding an preloaded file is a parse failure of the
   whole game, not a missing bench. The `if OS.has_feature("editor")` guard and the
   `exclude_filter` entry are a PAIR; undoing either alone breaks the export.
+- **`SceneTree.node_added` NEVER reports the BOOT scene's nodes to an autoload.** They enter the tree before
+  any autoload's `_ready()` runs, so a hook connected there misses them. `Audio`'s button hook did exactly
+  this: the main menu's buttons — and, when launched straight into a level, its StartButton — were silent
+  while buttons built later in some `_ready()` clicked. Pair `node_added` with one deferred sweep of
+  `get_tree().root`.
+- **Godot pauses an AudioStreamPlayer on the pause NOTIFICATION, not continuously.** A pausable voice
+  STARTED while paused plays anyway. A pause test must start the sound first and THEN pause; the first
+  A5-2 test did it the other way round, saw everything advance, and proved nothing.
+- **Editing buses through the editor (its Audio panel, or MCP `audiobus_edit`) rewrites
+  `default_bus_layout.tres` from the editor's IN-MEMORY layout.** A layout file created on disk while the
+  editor was open is not in that memory: adding one bus deleted the other bus from the file. Add the
+  buses through the editor so both copies agree, then check the file.
+- **MCP `execute_code` cannot read a built-in type's constants** — `Vector2.RIGHT` fails with a bare
+  `Expected '('`. Use the constructor, `Vector2(1, 0)`.
+- **A transient shorter than a round trip can still be verified through a counter.** The boulder's 3s
+  cooldown always reads 0 by the next call, but `Audio.stats["boulder_cast"]` persists. Prefer a
+  persistent counter over polling something short-lived.
 - **The scene file is `levels/level_01.tscn` but its ROOT NODE is still named `map1`** — renaming
   a file doesn't rename the node inside it. So the runtime path is still `/root/map1`, and
   `get_node("/root/level_01")` fails. Rename the node when convenient; until then expect the

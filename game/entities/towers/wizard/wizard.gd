@@ -80,6 +80,7 @@ func _on_timer_timeout():
 	fire.aoe_radius = AOE_RADIUS
 	get_parent().add_child(fire)
 	fire.global_position = global_position
+	Audio.play("wizard_cast")
 
 	# Same reasoning as archer.gd: the art is directional (the orb sits on the
 	# wizard's right), and it is drawn 3/4-overhead with the head above the

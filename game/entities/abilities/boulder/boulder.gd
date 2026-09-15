@@ -38,9 +38,11 @@ func _ready() -> void:
 	tween.tween_property(sprite, "position", Vector2.ZERO, IMPACT_DELAY) \
 		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tween.tween_callback(_impact)
+	Audio.play("boulder_cast")
 
 
 func _impact() -> void:
+	Audio.play("boulder_impact")
 	for z in _splash_candidates():
 		# The map's grid caches node references at rebuild time, and nothing
 		# guarantees a candidate survives an earlier iteration of THIS loop —

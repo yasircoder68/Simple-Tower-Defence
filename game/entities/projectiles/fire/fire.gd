@@ -68,6 +68,7 @@ func _in_reach(victim) -> bool:
 
 func _detonate() -> void:
 	hit = true
+	Audio.play("fire_explode")
 	# Splash everything inside aoe_radius. The candidate list comes from the
 	# map's spatial grid so this stays O(nearby) instead of scanning every
 	# enemy in the scene on every impact.

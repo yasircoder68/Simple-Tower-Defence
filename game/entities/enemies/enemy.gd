@@ -360,6 +360,9 @@ func take_damage(amount: int) -> void:
 ## _escape() can never disagree about whether the map is scoring.
 func _die() -> void:
 	_on_death()
+	# Event-level, never per-frame, like the behaviour hooks. Burst-safe: the Audio pool
+	# throttles and caps it, so wave 5 killing dozens at once costs a handful of voices.
+	Audio.play("enemy_death")
 	if _has_round_contract:
 		map.on_enemy_killed(silver_reward)
 	queue_free()

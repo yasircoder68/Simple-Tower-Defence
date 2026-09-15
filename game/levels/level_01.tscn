@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://m2dnhgidcx04" path="res://systems/level_controller.gd" id="1_map1"]
 [ext_resource type="PackedScene" uid="uid://dcbqh7oeor6rl" path="res://levels/tilesets/grass_biome.tscn" id="3_81a5f"]
-[ext_resource type="Script" path="res://systems/camera_controller.gd" id="3_gg43x"]
+[ext_resource type="Script" uid="uid://daxseaxaksynr" path="res://systems/camera_controller.gd" id="3_gg43x"]
 [ext_resource type="PackedScene" uid="uid://mjbfh66n8kmp" path="res://levels/tilesets/my_tiles.tscn" id="3_v7ld6"]
 
 [node name="map1" type="Node2D" unique_id=4869005]

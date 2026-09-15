@@ -88,6 +88,7 @@ func _on_timer_timeout():
 	arrow.damage = damage
 	get_parent().add_child(arrow)
 	arrow.global_position = global_position
+	Audio.play("archer_shot")
 
 	# Face the target, by FLIPPING rather than rotating. The art is directional —
 	# the bow sits on the archer's right and frame 1 nocks an arrow pointing +x —

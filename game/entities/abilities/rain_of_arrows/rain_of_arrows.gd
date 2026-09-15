@@ -115,6 +115,9 @@ func _ready() -> void:
 	_timer.timeout.connect(_on_tick)
 	add_child(_timer)
 	_timer.start()
+	# ONE sound per cast, never per tick: the file is a whole volley (bows, whistle, patter)
+	# timed to the barrage, and playing it every tick would stack twelve volleys.
+	Audio.play("rain_of_arrows")
 
 
 func _on_tick() -> void:
